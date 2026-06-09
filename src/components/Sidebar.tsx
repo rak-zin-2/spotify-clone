@@ -107,7 +107,7 @@ export default function Sidebar({
               )}
             </div>
 
-            {/* User Profile/Sign In Button */}
+            {/* User Profile/Sign In Button - Desktop (old style) */}
             {!isCollapsed && (
               <div className="ml-auto">
                 {user ? (
@@ -398,7 +398,7 @@ export default function Sidebar({
         </div>
       </motion.aside>
 
-      {/* MOBILE TOPBAR */}
+      {/* MOBILE TOPBAR - with sign out button identical to account size */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40">
         <div className="bg-black/90 backdrop-blur-xl border-b border-white/10 px-3 py-2">
           <div className="flex items-center justify-between">
@@ -419,12 +419,23 @@ export default function Sidebar({
               >
                 <Heart size={12} className="text-white fill-white" />
               </button>
+              
+              {/* Mobile User Section - Sign out button same size as avatar */}
               {user ? (
-                <img
-                  src={user.picture || `https://ui-avatars.com/api/?name=${user.name}&background=4f7cff&color=fff`}
-                  alt={user.name}
-                  className="w-7 h-7 rounded-full object-cover"
-                />
+                <>
+                  <img
+                    src={user.picture || `https://ui-avatars.com/api/?name=${user.name}&background=4f7cff&color=fff`}
+                    alt={user.name}
+                    className="w-7 h-7 rounded-full object-cover"
+                  />
+                  <button
+                    onClick={onSignOut}
+                    className="w-7 h-7 rounded-full bg-red-500/20 hover:bg-red-500/40 transition-all duration-200 flex items-center justify-center"
+                    title="Sign Out"
+                  >
+                    <LogOut size={14} className="text-red-400" />
+                  </button>
+                </>
               ) : (
                 <button
                   onClick={onSignIn}
