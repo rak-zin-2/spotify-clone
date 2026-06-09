@@ -143,4 +143,46 @@ export const songs = [
     cover: "/images/after_hours.jpg",
     src: "/songs/after_hours.mp3",
   },
+  {
+    title: "bye",
+    artist: "Ariana Grande",
+    cover: "/images/bye.jpg",
+    src: "/songs/bye.mp3",
+  },
+  {
+    title: "Paradise",
+    artist: "Chase Atlantic",
+    cover: "/images/paradise.jpg",
+    src: "/songs/paradise.mp3",
+  },
+  {
+    title: "Video Games",
+    artist: "Lana Del Rey",
+    cover: "/images/video_games.jpg",
+    src: "/songs/video_games.mp3",
+  },
+  {
+    title: "Young and Beautiful",
+    artist: "Lana Del Rey",
+    cover: "/images/young_and_beautiful.jpg",
+    src: "/songs/young_and_beautiful.mp3",
+  },
+  {
+    title: "Venice Bitch",
+    artist: "Lana Del Rey",
+    cover: "/images/venice_bitch.jpg",
+    src: "/songs/venice_bitch.mp3",
+  },
+  {
+    title: "A&W",
+    artist: "Lana Del Rey",
+    cover: "/images/a_&_w.jpg",
+    src: "/songs/a_&_w.mp3",
+  },
+  {
+    title: "West Coast",
+    artist: "Lana Del Rey",
+    cover: "/images/west_coast.jpg",
+    src: "/songs/west_coast.mp3",
+  },
 ];

@@ -1,4 +1,13 @@
+import type { Metadata } from "next";
 import "./globals.css";
+import { AuthProvider } from "@/hooks/useAuth";
+import { PendingChangesProvider } from "@/hooks/usePendingChanges";
+import AuthGuard from "@/components/AuthGuard";
+
+export const metadata: Metadata = {
+  title: "PavPav - Music Streaming",
+  description: "Your favorite music streaming platform",
+};
 
 export default function RootLayout({
   children,
@@ -8,7 +17,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {children}
+        <AuthProvider>
+          <PendingChangesProvider>
+            <AuthGuard>
+              {children}
+            </AuthGuard>
+          </PendingChangesProvider>
+        </AuthProvider>
       </body>
     </html>
   );
