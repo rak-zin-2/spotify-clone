@@ -398,7 +398,7 @@ export default function Sidebar({
         </div>
       </motion.aside>
 
-      {/* MOBILE TOPBAR - with sign out button identical to account size */}
+      {/* MOBILE TOPBAR - Always visible sign out button */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40">
         <div className="bg-black/90 backdrop-blur-xl border-b border-white/10 px-3 py-2">
           <div className="flex items-center justify-between">
@@ -416,30 +416,40 @@ export default function Sidebar({
               <button 
                 onClick={handleLikedSongsClick}
                 className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center"
+                aria-label="Liked Songs"
               >
                 <Heart size={12} className="text-white fill-white" />
               </button>
               
-              {/* Mobile User Section - Sign out button same size as avatar */}
+              {/* Mobile User Section - Always visible sign out button */}
               {user ? (
-                <>
-                  <img
-                    src={user.picture || `https://ui-avatars.com/api/?name=${user.name}&background=4f7cff&color=fff`}
-                    alt={user.name}
-                    className="w-7 h-7 rounded-full object-cover"
-                  />
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                    {user.picture ? (
+                      <img
+                        src={user.picture}
+                        alt={user.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-white text-xs font-medium">
+                        {user.name?.charAt(0).toUpperCase() || "U"}
+                      </span>
+                    )}
+                  </div>
                   <button
                     onClick={onSignOut}
-                    className="w-7 h-7 rounded-full bg-red-500/20 hover:bg-red-500/40 transition-all duration-200 flex items-center justify-center"
-                    title="Sign Out"
+                    className="w-7 h-7 rounded-full bg-red-500/20 hover:bg-red-500/40 active:bg-red-500/60 transition-all duration-200 flex items-center justify-center"
+                    aria-label="Sign Out"
                   >
                     <LogOut size={14} className="text-red-400" />
                   </button>
-                </>
+                </div>
               ) : (
                 <button
                   onClick={onSignIn}
-                  className="w-7 h-7 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 flex items-center justify-center"
+                  className="w-7 h-7 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition-all duration-200 flex items-center justify-center shadow-lg shadow-blue-500/30"
+                  aria-label="Sign In"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24">
                     <path
@@ -476,6 +486,7 @@ export default function Sidebar({
                   className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-all ${
                     isActive ? 'text-blue-400' : 'text-gray-500'
                   }`}
+                  aria-label={item.label}
                 >
                   <Icon size={18} />
                   <span className="text-[9px] font-medium">{item.label === "library" ? "Library" : item.label}</span>

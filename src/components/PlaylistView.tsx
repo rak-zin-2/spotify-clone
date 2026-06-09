@@ -51,7 +51,6 @@ export default function PlaylistView({
     playlist.songs.includes(song.title)
   );
 
-  // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -62,7 +61,6 @@ export default function PlaylistView({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Focus rename input when renaming starts
   useEffect(() => {
     if (isRenaming && renameInputRef.current) {
       renameInputRef.current.focus();
@@ -112,7 +110,6 @@ export default function PlaylistView({
     onToggleLike?.(songTitle);
   };
 
-  // Get cover images for rotating
   const getCoverImages = () => {
     const covers = playlistSongs.map(song => song.cover).filter(cover => cover);
     if (playlist.cover && playlist.cover !== "") {
@@ -134,7 +131,6 @@ export default function PlaylistView({
 
   return (
     <div className="animate-in fade-in duration-300">
-      {/* Delete Playlist Confirmation Modal */}
       <AnimatePresence>
         {showDeleteConfirm && (
           <motion.div
@@ -183,7 +179,6 @@ export default function PlaylistView({
         )}
       </AnimatePresence>
 
-      {/* Header with Back Button and Menu */}
       <div className="flex items-center justify-between mb-6">
         <button
           onClick={onBack}
@@ -193,7 +188,6 @@ export default function PlaylistView({
           Back to Library
         </button>
 
-        {/* Three dots menu */}
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setShowMenu(!showMenu)}
@@ -234,10 +228,8 @@ export default function PlaylistView({
         </div>
       </div>
 
-      {/* Playlist Header - Horizontal Layout */}
       <div className="glass rounded-2xl p-6 mb-8">
         <div className="flex flex-col md:flex-row gap-6">
-          {/* Left - Rotating Cover Art */}
           <div className="flex-shrink-0">
             <div className="relative w-40 h-40 md:w-48 md:h-48 rounded-2xl overflow-hidden shadow-2xl">
               {coverImages.length === 0 ? (
@@ -274,7 +266,6 @@ export default function PlaylistView({
             </div>
           </div>
 
-          {/* Right - Playlist Info */}
           <div className="flex-1 flex flex-col justify-between">
             <div>
               <p className="text-gray-400 uppercase text-xs tracking-widest mb-2">
@@ -334,7 +325,6 @@ export default function PlaylistView({
         </div>
       </div>
 
-      {/* Songs List - Simple list without drag and drop */}
       <div className="mt-6">
         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <Music size={18} className="text-blue-400" />
@@ -377,12 +367,10 @@ export default function PlaylistView({
                   className="glass rounded-xl p-3 transition-all duration-200 group hover:bg-white/10"
                 >
                   <div className="flex items-center gap-3">
-                    {/* Song Number */}
                     <div className="w-8 text-center">
                       <span className="text-gray-500 text-sm font-medium">{index + 1}</span>
                     </div>
 
-                    {/* Song Cover */}
                     <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
                       <img
                         src={song.cover}
@@ -391,7 +379,6 @@ export default function PlaylistView({
                       />
                     </div>
 
-                    {/* Song Info */}
                     <div
                       onClick={() => onPlaySong(song.title)}
                       className="flex-1 min-w-0 cursor-pointer"
@@ -404,7 +391,6 @@ export default function PlaylistView({
                       </p>
                     </div>
 
-                    {/* Action Buttons */}
                     <div className="flex items-center gap-1">
                       <motion.button
                         whileHover={{ scale: 1.1 }}
@@ -413,7 +399,7 @@ export default function PlaylistView({
                           e.stopPropagation();
                           onPlaySong(song.title);
                         }}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition opacity-0 group-hover:opacity-100"
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition md:opacity-0 md:group-hover:opacity-100"
                       >
                         <Play size={14} />
                       </motion.button>
@@ -425,7 +411,7 @@ export default function PlaylistView({
                           e.stopPropagation();
                           handleLike(e, song.title);
                         }}
-                        className="w-8 h-8 rounded-full flex items-center justify-center transition opacity-0 group-hover:opacity-100"
+                        className="w-8 h-8 rounded-full flex items-center justify-center transition md:opacity-0 md:group-hover:opacity-100"
                       >
                         <Heart 
                           size={14} 
@@ -440,7 +426,7 @@ export default function PlaylistView({
                           e.stopPropagation();
                           handleRemoveSong(song.title);
                         }}
-                        className="w-8 h-8 rounded-full flex items-center justify-center transition opacity-0 group-hover:opacity-100 hover:bg-red-500/20"
+                        className="w-8 h-8 rounded-full flex items-center justify-center transition md:opacity-0 md:group-hover:opacity-100 hover:bg-red-500/20"
                       >
                         <Trash2 size={14} className="text-gray-400 hover:text-red-400" />
                       </motion.button>

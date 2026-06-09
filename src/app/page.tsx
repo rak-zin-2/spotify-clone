@@ -138,14 +138,12 @@ const RotatingPlaylistCover = ({ playlist }: { playlist: any }) => {
   const [images, setImages] = useState<string[]>([]);
 
   useEffect(() => {
-    // Get all song covers from the playlist in order
     const playlistSongs = playlist.songs.map((title: string) => 
       songs.find(song => song.title === title)
     ).filter(Boolean);
     
     const covers = playlistSongs.map((song: any) => song.cover).filter((cover: string) => cover);
     
-    // If playlist has custom cover, use it as first image
     if (playlist.cover && playlist.cover !== "") {
       setImages([playlist.cover, ...covers]);
     } else {
@@ -155,11 +153,9 @@ const RotatingPlaylistCover = ({ playlist }: { playlist: any }) => {
 
   useEffect(() => {
     if (images.length <= 1) return;
-    
     const interval = setInterval(() => {
       setCurrentImageIndex((prev) => (prev + 1) % images.length);
     }, 5000);
-    
     return () => clearInterval(interval);
   }, [images.length]);
 
@@ -248,10 +244,8 @@ export default function Home() {
   const likedSongsList = songs.filter(song => likedSongs.includes(song.title));
   const likedSongTitles = likedSongsList.map(song => song.title);
 
-  // Get suggestions based on current search
   const suggestions = useMemo(() => getSuggestions(search, 5), [search]);
 
-  // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
@@ -262,7 +256,6 @@ export default function Home() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Handle playlist selection from sidebar dropdown
   useEffect(() => {
     const handleSelectPlaylist = (e: CustomEvent) => {
       setSelectedPlaylist(e.detail);
@@ -274,10 +267,8 @@ export default function Home() {
     return () => window.removeEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
   }, []);
 
-  // Determine current queue based on what's playing
   let currentQueue: string[] = [];
   
-  // Priority: current playlist songs > liked songs (if playing from liked) > all songs
   if (currentPlaylistSongs && !isPlayingFromLiked) {
     currentQueue = currentPlaylistSongs;
   } else if (isPlayingFromLiked) {
@@ -289,10 +280,8 @@ export default function Home() {
   const currentSongTitle = currentQueue[currentIndex];
   const currentSong = songs.find(s => s.title === currentSongTitle) || songs[0];
 
-  // Update recently played
   useEffect(() => {
     if (!currentSongTitle) return;
-
     setRecentlyPlayed((prev) => {
       if (prev[0] === currentSongTitle) return prev;
       return [
@@ -306,16 +295,13 @@ export default function Home() {
     .map((title) => songs.find((song) => song.title === title))
     .filter(Boolean);
 
-  // Fuzzy search filtering
   const filteredSongs = useMemo(() => {
     if (!search.trim()) return songs;
-    
     return songs.filter((song) => {
       return fuzzySearch(song.title, search) || fuzzySearch(song.artist, search);
     });
   }, [search]);
 
-  // Play a song from regular all songs
   const playSong = (title: string) => {
     const index = songs.findIndex(s => s.title === title);
     if (index !== -1) {
@@ -327,7 +313,6 @@ export default function Home() {
     }
   };
 
-  // Play a song from a specific playlist
   const playSongFromPlaylist = (title: string, playlistSongTitles: string[], playlistId: string) => {
     const index = playlistSongTitles.findIndex(t => t === title);
     if (index !== -1) {
@@ -339,7 +324,6 @@ export default function Home() {
     }
   };
 
-  // Play a song from Liked Songs
   const playSongFromLiked = (title: string) => {
     const index = likedSongTitles.findIndex(t => t === title);
     if (index !== -1) {
@@ -351,7 +335,6 @@ export default function Home() {
     }
   };
 
-  // Play next with infinite loop
   const playNext = () => {
     if (currentIndex < currentQueue.length - 1) {
       setCurrentIndex(currentIndex + 1);
@@ -360,7 +343,6 @@ export default function Home() {
     }
   };
 
-  // Play previous with infinite loop
   const playPrevious = () => {
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
@@ -572,17 +554,9 @@ export default function Home() {
                             whileTap={{ scale: 0.95 }}
                             onClick={(e) => {
                               e.stopPropagation();
-                              playSong(song!.title);
+                              handleLike(e, song!.title);
                             }}
-                            className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-blue-500 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center shadow-lg"
-                          >
-                            <Play size={18} className="ml-0.5" />
-                          </motion.button>
-                          <motion.button 
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={(e) => handleLike(e, song!.title)}
-                            className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-purple-500"
+                            className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-purple-500"
                           >
                             <Heart 
                               size={14} 
@@ -621,21 +595,10 @@ export default function Home() {
                         whileTap={{ scale: 0.95 }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          playSong(song.title);
-                        }}
-                        className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-blue-500 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center shadow-lg"
-                      >
-                        <Play size={18} className="ml-0.5" />
-                      </motion.button>
-                      <motion.button 
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
                           setSelectedSong(song.title);
                           setShowModal(true);
                         }}
-                        className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-blue-500"
+                        className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-blue-500"
                       >
                         <Plus size={14} />
                       </motion.button>
@@ -643,7 +606,7 @@ export default function Home() {
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={(e) => handleLike(e, song.title)}
-                        className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-purple-500"
+                        className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-purple-500"
                       >
                         <Heart 
                           size={14} 
@@ -704,21 +667,10 @@ export default function Home() {
                       whileTap={{ scale: 0.95 }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        playSong(song.title);
-                      }}
-                      className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-blue-500 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center shadow-lg"
-                    >
-                      <Play size={18} className="ml-0.5" />
-                    </motion.button>
-                    <motion.button 
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
                         setSelectedSong(song.title);
                         setShowModal(true);
                       }}
-                      className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-blue-500"
+                      className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-blue-500"
                     >
                       <Plus size={14} />
                     </motion.button>
@@ -726,7 +678,7 @@ export default function Home() {
                       whileHover={{ scale: 1.1 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={(e) => handleLike(e, song.title)}
-                      className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-purple-500"
+                      className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-purple-500"
                     >
                       <Heart 
                         size={14} 
@@ -826,9 +778,9 @@ export default function Home() {
                             e.stopPropagation();
                             playSongFromLiked(song.title);
                           }}
-                          className="playlist-play-btn opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center transition-all"
                         >
-                          <Play size={16} />
+                          <Play size={14} />
                         </motion.button>
                         <motion.button
                           whileHover={{ scale: 1.1 }}
@@ -946,7 +898,7 @@ export default function Home() {
                                 playSongFromPlaylist(playlist.songs[0], playlist.songs, playlist.id);
                               }
                             }}
-                            className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-blue-500 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center shadow-lg"
+                            className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center shadow-lg md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100"
                           >
                             <Play size={18} className="ml-0.5" />
                           </motion.button>
