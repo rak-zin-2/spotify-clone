@@ -389,15 +389,12 @@ export default function Home() {
     setSelectedPlaylist(null);
     setShowLikedSongs(true);
     setActiveTab("library");
-    // Don't reset playback when just VIEWING liked songs
-    // Only reset if user actually plays a song from liked songs
   };
 
   const handleLibraryView = () => {
     setSelectedPlaylist(null);
     setShowLikedSongs(false);
     setActiveTab("library");
-    // Don't reset playback when navigating
   };
 
   const handleLike = (e: React.MouseEvent, songTitle: string) => {
@@ -453,13 +450,7 @@ export default function Home() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
-          className="relative z-[100] flex-1 overflow-y-auto md:ml-72"
-          style={{ 
-            paddingTop: "70px",
-            paddingBottom: "140px",
-            paddingLeft: "20px",
-            paddingRight: "20px"
-          }}
+          className="relative z-[100] flex-1 overflow-y-auto md:ml-72 pt-35 md:pt-[70px] pb-[140px] px-4 md:px-5"
         >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 md:mb-8">
             <div className="flex items-center justify-between w-full md:w-auto">
