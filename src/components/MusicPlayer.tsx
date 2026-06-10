@@ -297,6 +297,25 @@ export default function MusicPlayer({
     return <Repeat size={16} className="md:w-4 md:h-4" />;
   };
 
+  // Add CSS animation keyframes to the document
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto">
       <div className="bg-gradient-to-r from-gray-900/95 to-gray-800/95 backdrop-blur-xl rounded-t-xl border-t border-blue-500/20 px-3 md:px-5 py-3 md:py-4">
@@ -338,17 +357,13 @@ export default function MusicPlayer({
 
         {/* Main layout - grid ensures perfect centering */}
         <div className="grid grid-cols-3 items-center gap-2 md:gap-4">
-          {/* LEFT - Rotating Photo + Song Info */}
+          {/* LEFT - Rotating Photo + Song Info - FIXED VERSION */}
           <div className="flex items-center gap-2 md:gap-3 justify-start min-w-0">
-            <motion.div
-              animate={playing ? { rotate: 360 } : { rotate: 0 }}
-              transition={{
-                duration: 4,
-                repeat: Infinity,
-                ease: "linear",
-                repeatType: "loop",
-              }}
+            <div
               className="flex-shrink-0"
+              style={{
+                animation: playing ? "spin 4s linear infinite" : "none"
+              }}
             >
               <div className="w-8 h-8 md:w-10 md:h-10 rounded-full overflow-hidden shadow-lg ring-2 ring-blue-500/30">
                 <img
@@ -357,7 +372,7 @@ export default function MusicPlayer({
                   className="w-full h-full object-cover"
                 />
               </div>
-            </motion.div>
+            </div>
             <div className="min-w-0 hidden sm:block">
               <h3 className="font-medium text-xs md:text-sm truncate text-white">{currentSong.title}</h3>
               <p className="text-blue-300/70 text-[10px] md:text-xs truncate">{currentSong.artist}</p>
