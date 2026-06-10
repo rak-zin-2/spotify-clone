@@ -15,7 +15,7 @@ import { useLikedSongs } from "@/hooks/useLikedSongs";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 
-import { Plus, Play, Disc3, ArrowLeft, Heart, Search as SearchIcon, X } from "lucide-react";
+import { Plus, Play, Disc3, ArrowLeft, Heart, Search as SearchIcon, X, ArrowUp } from "lucide-react";
 
 // Fuzzy search function - finds matches even with typos
 const fuzzySearch = (text: string, query: string): boolean => {
@@ -221,6 +221,10 @@ export default function Home() {
   const [deletingPlaylistId, setDeletingPlaylistId] = useState<string | null>(null);
   
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  // Create a ref for the scrollable content
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const {
     playlists,
@@ -245,6 +249,46 @@ export default function Home() {
   const likedSongTitles = likedSongsList.map(song => song.title);
 
   const suggestions = useMemo(() => getSuggestions(search, 5), [search]);
+
+  // Check scroll position for Back to Top button
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollThreshold = 200;
+      
+      if (window.scrollY > scrollThreshold) {
+        setShowBackToTop(true);
+      } else {
+        setShowBackToTop(false);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    handleScroll();
+    
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Function to scroll the main content to top
+  const scrollContentToTop = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: 0,
+        behavior: "smooth"
+      });
+    }
+  };
+
+  // Listen for custom events from Sidebar
+  useEffect(() => {
+    const handleScrollToTop = (e: CustomEvent) => {
+      if (e.detail === "home" || e.detail === "search") {
+        setTimeout(() => scrollContentToTop(), 100);
+      }
+    };
+
+    window.addEventListener('scrollToTop', handleScrollToTop as EventListener);
+    return () => window.removeEventListener('scrollToTop', handleScrollToTop as EventListener);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -351,6 +395,10 @@ export default function Home() {
     }
   };
 
+  const scrollToTop = () => {
+    scrollContentToTop();
+  };
+
   const handleCreatePlaylist = () => {
     if (tempPlaylistName.trim()) {
       createPlaylist(tempPlaylistName.trim());
@@ -429,6 +477,7 @@ export default function Home() {
         />
 
         <motion.section 
+          ref={scrollContainerRef}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
@@ -983,6 +1032,80 @@ export default function Home() {
         isOpen={showAuthModal}
         onClose={() => setShowAuthModal(false)}
       />
+
+      {/* Back to Top Button */}
+      <AnimatePresence>
+        {showBackToTop && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.3 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.3 }}
+            transition={{ 
+              type: "spring", 
+              stiffness: 400, 
+              damping: 25 
+            }}
+            onClick={scrollToTop}
+            className="fixed bottom-28 right-4 z-[9999] active:scale-95"
+            style={{
+              width: "56px",
+              height: "56px",
+              borderRadius: "28px",
+              background: "linear-gradient(135deg, #3B82F6, #8B5CF6)",
+              boxShadow: "0 10px 25px -5px rgba(59, 130, 246, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.2)",
+              border: "2px solid rgba(255, 255, 255, 0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
+            <div 
+              style={{
+                position: "absolute",
+                width: "100%",
+                height: "100%",
+                borderRadius: "28px",
+                background: "linear-gradient(135deg, #3B82F6, #8B5CF6)",
+                opacity: 0.5,
+                animation: "pulse 1.5s ease-in-out infinite",
+              }}
+            />
+            
+            <div 
+              style={{
+                position: "absolute",
+                inset: "4px",
+                borderRadius: "24px",
+                background: "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.3), rgba(255,255,255,0))",
+              }}
+            />
+            
+            <ArrowUp 
+              size={28} 
+              style={{ 
+                color: "white",
+                position: "relative",
+                zIndex: 1,
+                strokeWidth: 2.5,
+              }} 
+            />
+            
+            <style>{`
+              @keyframes pulse {
+                0%, 100% {
+                  transform: scale(1);
+                  opacity: 0.5;
+                }
+                50% {
+                  transform: scale(1.2);
+                  opacity: 0.8;
+                }
+              }
+            `}</style>
+          </motion.button>
+        )}
+      </AnimatePresence>
     </>
   );
 }

@@ -45,6 +45,28 @@ export default function Sidebar({
     return () => window.removeEventListener('playlistChanged', handlePlaylistChange);
   }, []);
 
+  // Simple function to scroll window to top
+  const scrollWindowToTop = () => {
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  };
+
+  // Handle navigation - ONLY scroll when clicking Home while already on Home
+  const handleNavigation = (tabId: string) => {
+    if (tabId === "home" && activeTab === "home") {
+      // Clicking Home when already on Home - scroll to top
+      scrollWindowToTop();
+    } else if (tabId === "search" && activeTab === "search") {
+      // Clicking Search when already on Search - scroll to top
+      scrollWindowToTop();
+    } else {
+      // Normal tab switching - NO scrolling
+      setActiveTab(tabId);
+    }
+  };
+
   const navItems = [
     { id: "home", label: "Home", icon: House },
     { id: "search", label: "Search", icon: Search },
@@ -107,7 +129,7 @@ export default function Sidebar({
               )}
             </div>
 
-            {/* User Profile/Sign In Button - Desktop (old style) */}
+            {/* User Profile/Sign In Button - Desktop */}
             {!isCollapsed && (
               <div className="ml-auto">
                 {user ? (
@@ -231,7 +253,7 @@ export default function Sidebar({
                     key={item.id}
                     whileHover={{ x: 4 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => setActiveTab(item.id)}
+                    onClick={() => handleNavigation(item.id)}
                     className={`
                       w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200
                       ${isCollapsed ? 'justify-center' : ''}
@@ -398,7 +420,7 @@ export default function Sidebar({
         </div>
       </motion.aside>
 
-      {/* MOBILE TOPBAR - Always visible sign out button */}
+      {/* MOBILE TOPBAR */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40">
         <div className="bg-black/90 backdrop-blur-xl border-b border-white/10 px-3 py-2">
           <div className="flex items-center justify-between">
@@ -421,7 +443,7 @@ export default function Sidebar({
                 <Heart size={12} className="text-white fill-white" />
               </button>
               
-              {/* Mobile User Section - Always visible sign out button */}
+              {/* Mobile User Section */}
               {user ? (
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-full overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
@@ -482,7 +504,7 @@ export default function Sidebar({
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => handleNavigation(item.id)}
                   className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-all ${
                     isActive ? 'text-blue-400' : 'text-gray-500'
                   }`}

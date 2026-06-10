@@ -209,7 +209,7 @@ export default function AuthModal({ isOpen, onClose }: Props) {
                       </button>
                     </div>
 
-                    <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                    {/* <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
                       <div className="flex items-center gap-2 mb-2">
                         <User size={14} className="text-purple-400" />
                         <span className="text-xs font-semibold text-purple-400">Emma Davis</span>
@@ -223,7 +223,7 @@ export default function AuthModal({ isOpen, onClose }: Props) {
                       >
                         Click to auto-fill →
                       </button>
-                    </div>
+                    </div> */}
                   </motion.div>
                 )}
               </AnimatePresence>

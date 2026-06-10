@@ -57,11 +57,11 @@ const DEMO_USERS = {
   },
   user4: {
     id: "user-4",
-    email: "emma@example.com",
-    name: "Emma Davis",
-    password: "emma123",
+    email: "abc@gmail.com",
+    name: "Slyn Gay",
+    password: "abc@12345",
     role: "user" as const,
-    picture: "https://ui-avatars.com/api/?name=Emma&background=0984e3&color=fff",
+    picture: "https://ui-avatars.com/api/?name=Slyn&background=0984e3&color=fff",
   },
 };
 

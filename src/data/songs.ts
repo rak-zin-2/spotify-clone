@@ -408,7 +408,7 @@ export const songs = [
     src: "/songs/pomnyu_tvoyo_telo.mp3",
   },
   {
-    title: "Can't Get You Uut of My Head",
+    title: "Can't Get You Out of My Head",
     artist: "Kylie Minogue",
     cover: "/images/cant_get_you_out_of_my_head.jpg",
     src: "/songs/cant_get_you_out_of_my_head.mp3",
