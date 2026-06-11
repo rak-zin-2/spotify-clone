@@ -1,16 +1,17 @@
+// components/AuthGuard.tsx
 "use client";
 
-import { useAuth } from "@/hooks/useAuth";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { motion } from "framer-motion";
 import { Disc3, Shield, User, LogIn } from "lucide-react";
 import { useState } from "react";
 import AuthModal from "./AuthModal";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, loading } = useSupabaseAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
         <div className="text-center">
@@ -102,18 +103,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     <Shield size={14} className="text-red-400 mx-auto mb-1" />
                     <p className="text-xs font-semibold text-red-400">Admin</p>
                     <p className="text-[10px] text-gray-500">admin@example.com</p>
+                    <p className="text-[10px] text-gray-500">Pass: admin123</p>
                   </div>
                   <div className="p-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
                     <User size={14} className="text-purple-400 mx-auto mb-1" />
                     <p className="text-xs font-semibold text-purple-400">User</p>
-                    <p className="text-[10px] text-gray-500">user1@example.com</p>
+                    <p className="text-[10px] text-gray-500">user@example.com</p>
+                    <p className="text-[10px] text-gray-500">Pass: user123</p>
                   </div>
-                </div>
-
-                <div className="text-center mt-6">
-                  <p className="text-xs text-gray-500">
-                    Password for all accounts: <span className="text-blue-400">123</span>
-                  </p>
                 </div>
               </div>
             </div>

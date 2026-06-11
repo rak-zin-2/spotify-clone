@@ -2,39 +2,47 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { songs } from "@/data/songs";
 
 import Sidebar from "@/components/Sidebar";
 import MusicPlayer from "@/components/MusicPlayer";
 import PlaylistModal from "@/components/PlaylistModal";
 import PlaylistView from "@/components/PlaylistView";
 import AdminNotificationCenter from "@/components/AdminNotificationCenter";
-
-import { usePlaylist } from "@/hooks/usePlaylist";
-import { useLikedSongs } from "@/hooks/useLikedSongs";
-import { useAuth } from "@/hooks/useAuth";
+import DownloadSongModal from "@/components/DownloadSongModal";
 import AuthModal from "@/components/AuthModal";
 
-import { Plus, Play, Disc3, ArrowLeft, Heart, Search as SearchIcon, X, ArrowUp } from "lucide-react";
+import { useSupabasePlaylist } from "@/hooks/useSupabasePlaylist";
+import { useSupabaseLikedSongs } from "@/hooks/useSupabaseLikedSongs";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
+import { useSupabaseSongs } from "@/hooks/useSupabaseSongs";
 
-// Fuzzy search function - finds matches even with typos
+import { Plus, Play, Disc3, ArrowLeft, Heart, Search as SearchIcon, X, ArrowUp, Upload, Trash2, Edit2, Save, ImageIcon } from "lucide-react";
+
+// Type for song
+type Song = {
+  id: string;
+  title: string;
+  artist: string;
+  cover_url: string;
+  audio_url: string;
+  is_default: boolean;
+  uploaded_by: string | null;
+  created_at: string;
+};
+
+// Fuzzy search function
 const fuzzySearch = (text: string, query: string): boolean => {
   if (!query.trim()) return true;
   
   const textLower = text.toLowerCase();
   const queryLower = query.toLowerCase();
   
-  // Exact match
   if (textLower.includes(queryLower)) return true;
   
-  // Split query into words
   const queryWords = queryLower.split(/\s+/);
-  
-  // Check if all query words are present (in any order)
   const allWordsPresent = queryWords.every(word => textLower.includes(word));
   if (allWordsPresent) return true;
   
-  // Levenshtein distance for close matches (typo tolerance)
   const getLevenshteinDistance = (a: string, b: string): number => {
     const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
     
@@ -54,12 +62,10 @@ const fuzzySearch = (text: string, query: string): boolean => {
     return matrix[b.length][a.length];
   };
   
-  // Check for close matches (typos) - allow up to 3 character difference or 30% of length
   const maxDistance = Math.min(3, Math.floor(queryLower.length * 0.3));
   const distance = getLevenshteinDistance(textLower.slice(0, queryLower.length + 3), queryLower);
   if (distance <= maxDistance) return true;
   
-  // Check each word separately for typos
   const textWords = textLower.split(/\s+/);
   for (const queryWord of queryWords) {
     for (const textWord of textWords) {
@@ -74,30 +80,26 @@ const fuzzySearch = (text: string, query: string): boolean => {
 };
 
 // Get unique suggestions from songs
-const getSuggestions = (query: string, limit: number = 5): { title: string; artist: string; cover: string }[] => {
+const getSuggestions = (query: string, songsList: Song[], limit: number = 5): { title: string; artist: string; cover: string }[] => {
   if (!query.trim()) return [];
   
   const queryLower = query.toLowerCase();
-  const matches: { song: typeof songs[0]; score: number }[] = [];
+  const matches: { song: Song; score: number }[] = [];
   
-  for (const song of songs) {
+  for (const song of songsList) {
     let score = 0;
     const titleLower = song.title.toLowerCase();
     const artistLower = song.artist.toLowerCase();
     
-    // Exact match gets highest score
     if (titleLower === queryLower || artistLower === queryLower) {
       score = 100;
     }
-    // Starts with query
     else if (titleLower.startsWith(queryLower) || artistLower.startsWith(queryLower)) {
       score = 80;
     }
-    // Contains query
     else if (titleLower.includes(queryLower) || artistLower.includes(queryLower)) {
       score = 60;
     }
-    // Word match
     else {
       const queryWords = queryLower.split(/\s+/);
       let wordMatches = 0;
@@ -111,7 +113,6 @@ const getSuggestions = (query: string, limit: number = 5): { title: string; arti
       }
     }
     
-    // Fuzzy match bonus
     if (fuzzySearch(song.title, query) || fuzzySearch(song.artist, query)) {
       score = Math.max(score, 30);
     }
@@ -121,35 +122,32 @@ const getSuggestions = (query: string, limit: number = 5): { title: string; arti
     }
   }
   
-  // Sort by score and return unique suggestions
   matches.sort((a, b) => b.score - a.score);
-  const unique = matches.slice(0, limit).map(m => ({
+  return matches.slice(0, limit).map(m => ({
     title: m.song.title,
     artist: m.song.artist,
-    cover: m.song.cover
+    cover: m.song.cover_url
   }));
-  
-  return unique;
 };
 
-// Component for rotating playlist cover in library grid
-const RotatingPlaylistCover = ({ playlist }: { playlist: any }) => {
+// Component for rotating playlist cover
+const RotatingPlaylistCover = ({ playlist, allSongs }: { playlist: any; allSongs: Song[] }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [images, setImages] = useState<string[]>([]);
 
   useEffect(() => {
     const playlistSongs = playlist.songs.map((title: string) => 
-      songs.find(song => song.title === title)
+      allSongs.find(song => song.title === title)
     ).filter(Boolean);
     
-    const covers = playlistSongs.map((song: any) => song.cover).filter((cover: string) => cover);
+    const covers = playlistSongs.map((song: any) => song.cover_url).filter((cover: string) => cover);
     
-    if (playlist.cover && playlist.cover !== "") {
-      setImages([playlist.cover, ...covers]);
+    if (playlist.cover_url && playlist.cover_url !== "") {
+      setImages([playlist.cover_url, ...covers]);
     } else {
       setImages(covers.length > 0 ? covers : []);
     }
-  }, [playlist.songs, playlist.cover]);
+  }, [playlist.songs, playlist.cover_url, allSongs]);
 
   useEffect(() => {
     if (images.length <= 1) return;
@@ -196,6 +194,246 @@ const RotatingPlaylistCover = ({ playlist }: { playlist: any }) => {
   );
 };
 
+// Admin Edit Song Modal Component - WITH AUDIO UPLOAD
+const AdminEditSongModal = ({ 
+  isOpen, 
+  onClose, 
+  song, 
+  onSave,
+  onUploadAudio,
+  onUploadCover
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  song: Song | null; 
+  onSave: (songId: string, title: string, artist: string, cover_url: string, audio_url?: string) => Promise<void>;
+  onUploadAudio: (file: File, songId: string) => Promise<string>;
+  onUploadCover: (file: File, songId: string) => Promise<string>;
+}) => {
+  const [title, setTitle] = useState("");
+  const [artist, setArtist] = useState("");
+  const [coverUrl, setCoverUrl] = useState("");
+  const [audioUrl, setAudioUrl] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioFileName, setAudioFileName] = useState("");
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (song) {
+      setTitle(song.title);
+      setArtist(song.artist);
+      setCoverUrl(song.cover_url || "");
+      setAudioUrl(song.audio_url || "");
+      setCoverPreview(null);
+      setCoverFile(null);
+      setAudioFile(null);
+      setAudioFileName("");
+    }
+  }, [song]);
+
+  const handleCoverSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith("image/")) {
+      setCoverFile(file);
+      setCoverPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleAudioSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith("audio/")) {
+      setAudioFile(file);
+      setAudioFileName(file.name);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!title.trim() || !artist.trim() || !song) return;
+    
+    setIsLoading(true);
+    let finalCoverUrl = coverUrl;
+    let finalAudioUrl = audioUrl;
+    
+    if (coverFile) {
+      finalCoverUrl = await onUploadCover(coverFile, song.id);
+    }
+    
+    if (audioFile) {
+      finalAudioUrl = await onUploadAudio(audioFile, song.id);
+    }
+    
+    await onSave(song.id, title.trim(), artist.trim(), finalCoverUrl || "", finalAudioUrl);
+    setIsLoading(false);
+    onClose();
+  };
+
+  if (!song) return null;
+
+  const getImageSrc = () => {
+    if (coverPreview) return coverPreview;
+    if (coverUrl && coverUrl !== "") return coverUrl;
+    return null;
+  };
+
+  const imageSrc = getImageSrc();
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 rounded-2xl border border-blue-500/30 overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between p-5 border-b border-white/10 sticky top-0 bg-gray-900">
+              <div>
+                <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                  Edit Song
+                </h2>
+                <p className="text-xs text-gray-500 mt-1">Admin only - Edit song details</p>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-1 rounded-full hover:bg-white/10 transition"
+              >
+                <X size={20} className="text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Song Title</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="w-full px-4 py-2 rounded-xl bg-white/10 border border-white/20 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Artist Name</label>
+                <input
+                  type="text"
+                  value={artist}
+                  onChange={(e) => setArtist(e.target.value)}
+                  className="w-full px-4 py-2 rounded-xl bg-white/10 border border-white/20 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Cover Image</label>
+                <div className="flex gap-3 mb-2">
+                  {imageSrc ? (
+                    <img
+                      src={imageSrc}
+                      alt="Current cover"
+                      className="w-16 h-16 rounded-lg object-cover bg-gray-800"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
+                      <ImageIcon size={24} className="text-gray-500" />
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <input
+                      ref={coverInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleCoverSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => coverInputRef.current?.click()}
+                      className="w-full px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition text-sm"
+                    >
+                      {coverFile ? "Change Cover" : "Upload New Cover"}
+                    </button>
+                    {coverFile && (
+                      <p className="text-xs text-green-400 mt-1">{coverFile.name}</p>
+                    )}
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  value={coverUrl}
+                  onChange={(e) => setCoverUrl(e.target.value)}
+                  placeholder="Or enter image URL"
+                  className="w-full px-4 py-2 rounded-xl bg-white/10 border border-white/20 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">Audio File</label>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <input
+                      ref={audioInputRef}
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleAudioSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => audioInputRef.current?.click()}
+                      className="w-full px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition text-sm flex items-center justify-center gap-2"
+                    >
+                      <Upload size={16} />
+                      {audioFile ? "Change Audio File" : "Upload New Audio File"}
+                    </button>
+                    {audioFile && (
+                      <p className="text-xs text-green-400 mt-1">{audioFileName}</p>
+                    )}
+                    {!audioFile && audioUrl && audioUrl !== "" && (
+                      <p className="text-xs text-gray-500 mt-1 truncate">
+                        Current: {audioUrl.split('/').pop()}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Supported formats: MP3, WAV, OGG (Max 50MB)
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={handleSubmit}
+                  disabled={isLoading}
+                  className="flex-1 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <><Save size={16} /> Save Changes</>
+                  )}
+                </button>
+                <button
+                  onClick={onClose}
+                  className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 export default function Home() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [currentPlaylistSongs, setCurrentPlaylistSongs] = useState<string[] | null>(null);
@@ -222,40 +460,92 @@ export default function Home() {
   
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingSong, setEditingSong] = useState<Song | null>(null);
+  
+  const [playlistCoverFile, setPlaylistCoverFile] = useState<File | null>(null);
+  const [playlistCoverPreview, setPlaylistCoverPreview] = useState("");
+  const playlistCoverInputRef = useRef<HTMLInputElement>(null);
 
-  // Create a ref for the scrollable content
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const {
-    playlists,
-    setPlaylists,
-    createPlaylist,
-    addSongToPlaylist,
-    removeSongFromPlaylist,
-    renamePlaylist,
-    deletePlaylist,
-    reorderPlaylistSongs,
-  } = usePlaylist();
+  const { songs: supabaseSongs, loading: songsLoading, addSong: addSongToSupabase, deleteSong: deleteSongFromSupabase, refreshSongs, updateSong: updateSongInSupabase, uploadAudioFile, uploadCoverImage } = useSupabaseSongs();
+  const { playlists, createPlaylist, addSongToPlaylist, removeSongFromPlaylist, renamePlaylist, deletePlaylist, refreshPlaylists } = useSupabasePlaylist();
+  const { likedSongs, toggleLike, isLiked, refreshLikedSongs } = useSupabaseLikedSongs();
+  const { user, signOut, signIn, isAdmin, currentUserId, loading: authLoading } = useSupabaseAuth();
 
-  const {
-    likedSongs,
-    toggleLike,
-    isLiked,
-  } = useLikedSongs();
-  
-  const { user, signOut, signIn, isAdmin } = useAuth();
+  const allSongs = supabaseSongs;
 
-  const likedSongsList = songs.filter(song => likedSongs.includes(song.title));
+  const addUserSong = async (newSong: { title: string; artist: string; cover: string; src: string }) => {
+    try {
+      await addSongToSupabase({
+        title: newSong.title,
+        artist: newSong.artist,
+        cover_url: newSong.cover,
+        audio_url: newSong.src,
+      });
+      alert("✅ Song added successfully!");
+    } catch (error) {
+      console.error("Failed to add song:", error);
+      alert("Failed to add song. Please try again.");
+    }
+  };
+
+  const deleteUserSong = async (songId: string, songTitle: string) => {
+    if (!isAdmin) {
+      alert("Only admins can delete songs");
+      return;
+    }
+    
+    if (confirm(`⚠️ ADMIN ACTION: Permanently delete "${songTitle}" for ALL users?\n\nThis action cannot be undone!`)) {
+      try {
+        await deleteSongFromSupabase(songId);
+        alert(`✅ Song "${songTitle}" has been permanently deleted by admin`);
+      } catch (error) {
+        console.error("Failed to delete song:", error);
+        alert("Failed to delete song. Please try again.");
+      }
+    }
+  };
+
+  const updateSong = async (songId: string, title: string, artist: string, cover_url: string, audio_url?: string) => {
+    if (!isAdmin) {
+      alert("Only admins can edit songs");
+      return;
+    }
+    
+    try {
+      const updates: any = { title, artist, cover_url };
+      if (audio_url) {
+        updates.audio_url = audio_url;
+      }
+      await updateSongInSupabase(songId, updates);
+      alert(`✅ Song "${title}" has been updated successfully!`);
+      await refreshSongs();
+    } catch (error) {
+      console.error("Failed to update song:", error);
+      alert("Failed to update song. Please try again.");
+    }
+  };
+
+  const handlePlaylistCoverSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith("image/")) {
+      setPlaylistCoverFile(file);
+      setPlaylistCoverPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const likedSongsList = allSongs.filter(song => likedSongs.includes(song.title));
   const likedSongTitles = likedSongsList.map(song => song.title);
 
-  const suggestions = useMemo(() => getSuggestions(search, 5), [search]);
+  const suggestions = useMemo(() => getSuggestions(search, allSongs, 5), [search, allSongs]);
 
-  // Check scroll position for Back to Top button
   useEffect(() => {
     const handleScroll = () => {
-      const scrollThreshold = 200;
-      
-      if (window.scrollY > scrollThreshold) {
+      if (window.scrollY > 200) {
         setShowBackToTop(true);
       } else {
         setShowBackToTop(false);
@@ -268,7 +558,6 @@ export default function Home() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Function to scroll the main content to top
   const scrollContentToTop = () => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({
@@ -278,7 +567,6 @@ export default function Home() {
     }
   };
 
-  // Listen for custom events from Sidebar
   useEffect(() => {
     const handleScrollToTop = (e: CustomEvent) => {
       if (e.detail === "home" || e.detail === "search") {
@@ -318,11 +606,11 @@ export default function Home() {
   } else if (isPlayingFromLiked) {
     currentQueue = likedSongTitles;
   } else {
-    currentQueue = songs.map(s => s.title);
+    currentQueue = allSongs.map(s => s.title);
   }
   
   const currentSongTitle = currentQueue[currentIndex];
-  const currentSong = songs.find(s => s.title === currentSongTitle) || songs[0];
+  const currentSong = allSongs.find(s => s.title === currentSongTitle) || allSongs[0];
 
   useEffect(() => {
     if (!currentSongTitle) return;
@@ -336,18 +624,18 @@ export default function Home() {
   }, [currentSongTitle]);
 
   const recentlyPlayedSongs = recentlyPlayed
-    .map((title) => songs.find((song) => song.title === title))
+    .map((title) => allSongs.find((song) => song.title === title))
     .filter(Boolean);
 
   const filteredSongs = useMemo(() => {
-    if (!search.trim()) return songs;
-    return songs.filter((song) => {
+    if (!search.trim()) return allSongs;
+    return allSongs.filter((song) => {
       return fuzzySearch(song.title, search) || fuzzySearch(song.artist, search);
     });
-  }, [search]);
+  }, [search, allSongs]);
 
   const playSong = (title: string) => {
-    const index = songs.findIndex(s => s.title === title);
+    const index = allSongs.findIndex(s => s.title === title);
     if (index !== -1) {
       setCurrentPlaylistSongs(null);
       setCurrentPlaylistId(null);
@@ -399,18 +687,21 @@ export default function Home() {
     scrollContentToTop();
   };
 
-  const handleCreatePlaylist = () => {
-    if (tempPlaylistName.trim()) {
-      createPlaylist(tempPlaylistName.trim());
+  const handleCreatePlaylist = async (name: string, coverFile?: File | null) => {
+    if (name.trim()) {
+      await createPlaylist(name.trim(), coverFile);
       setTempPlaylistName("");
+      setPlaylistCoverFile(null);
+      setPlaylistCoverPreview("");
       setShowCreateModal(false);
+      await refreshPlaylists();
     }
   };
 
-  const handleDeletePlaylist = (playlistId: string) => {
+  const handleDeletePlaylist = async (playlistId: string) => {
     setDeletingPlaylistId(playlistId);
-    setTimeout(() => {
-      deletePlaylist(playlistId);
+    setTimeout(async () => {
+      await deletePlaylist(playlistId);
       setDeletingPlaylistId(null);
     }, 300);
   };
@@ -427,9 +718,9 @@ export default function Home() {
     setActiveTab("library");
   };
 
-  const handleLike = (e: React.MouseEvent, songTitle: string) => {
+  const handleLike = async (e: React.MouseEvent, songTitle: string) => {
     e.stopPropagation();
-    toggleLike(songTitle);
+    await toggleLike(songTitle);
   };
 
   const handleSelectSuggestion = (songTitle: string) => {
@@ -457,6 +748,17 @@ export default function Home() {
       setShowSuggestions(true);
     }
   };
+
+  if (songsLoading || authLoading) {
+    return (
+      <div className="fixed inset-0 bg-black flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-full border-4 border-blue-500 border-t-transparent animate-spin mx-auto mb-4" />
+          <p className="text-gray-400">Loading your music...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -503,6 +805,14 @@ export default function Home() {
                   <AdminNotificationCenter />
                 </div>
               )}
+
+              <button
+                onClick={() => setShowDownloadModal(true)}
+                className="flex items-center gap-2 px-3 py-2 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 transition text-sm font-medium shadow-lg shadow-purple-500/30"
+              >
+                <Upload size={14} />
+                <span className="hidden sm:inline">Add Song</span>
+              </button>
 
               {activeTab === "search" && (
                 <div className="w-full md:w-96 relative" ref={searchRef}>
@@ -584,16 +894,16 @@ export default function Home() {
                   <div className="grid gap-4 md:gap-5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 mb-10">
                     {recentlyPlayedSongs.slice(0, 6).map((song, i) => (
                       <motion.div
-                        key={song!.title}
+                        key={song!.id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.05 }}
                         onClick={() => playSong(song!.title)}
-                        className="group cursor-pointer"
+                        className="group cursor-pointer relative"
                       >
                         <div className="relative rounded-xl overflow-hidden">
                           <img
-                            src={song!.cover}
+                            src={song!.cover_url}
                             alt={song!.title}
                             className="w-full aspect-square object-cover transition-transform group-hover:scale-105 duration-300"
                           />
@@ -605,7 +915,7 @@ export default function Home() {
                               e.stopPropagation();
                               handleLike(e, song!.title);
                             }}
-                            className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-purple-500"
+                            className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 md:group-hover:opacity-100 transition-all duration-200 hover:bg-purple-500 z-10"
                           >
                             <Heart 
                               size={14} 
@@ -623,50 +933,95 @@ export default function Home() {
 
               <h3 className="text-lg md:text-2xl font-bold mb-4">All Songs</h3>
               <div className="grid gap-4 md:gap-5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                {songs.map((song, i) => (
-                  <motion.div
-                    key={song.title}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.02 }}
-                    className="group cursor-pointer"
-                    onClick={() => playSong(song.title)}
-                  >
-                    <div className="relative rounded-xl overflow-hidden">
-                      <img
-                        src={song.cover}
-                        alt={song.title}
-                        className="w-full aspect-square object-cover transition-transform group-hover:scale-105 duration-300"
-                      />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <motion.button 
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedSong(song.title);
-                          setShowModal(true);
-                        }}
-                        className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-blue-500"
-                      >
-                        <Plus size={14} />
-                      </motion.button>
-                      <motion.button 
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => handleLike(e, song.title)}
-                        className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-purple-500"
-                      >
-                        <Heart 
-                          size={14} 
-                          className={isLiked(song.title) ? "text-purple-400 fill-purple-400" : "text-white"}
+                {allSongs.map((song, i) => {
+                  const isUserSong = !song.is_default;
+                  
+                  return (
+                    <motion.div
+                      key={song.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.02 }}
+                      className="group cursor-pointer relative"
+                      onClick={() => playSong(song.title)}
+                    >
+                      <div className="relative rounded-xl overflow-hidden">
+                        <img
+                          src={song.cover_url}
+                          alt={song.title}
+                          className="w-full aspect-square object-cover transition-transform group-hover:scale-105 duration-300"
                         />
-                      </motion.button>
-                    </div>
-                    <h3 className="mt-2 text-sm font-semibold truncate">{song.title}</h3>
-                    <p className="text-gray-400 text-xs truncate">{song.artist}</p>
-                  </motion.div>
-                ))}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 transition-opacity" />
+                        
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedSong(song.title);
+                            setShowModal(true);
+                          }}
+                          className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-blue-500 z-10"
+                        >
+                          <Plus size={14} />
+                        </motion.button>
+                        
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => handleLike(e, song.title)}
+                          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-purple-500 z-10"
+                        >
+                          <Heart 
+                            size={14} 
+                            className={isLiked(song.title) ? "text-purple-400 fill-purple-400" : "text-white"}
+                          />
+                        </motion.button>
+
+                        {isAdmin && (
+                          <motion.button 
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingSong(song);
+                              setShowEditModal(true);
+                            }}
+                            className="absolute bottom-2 right-12 w-8 h-8 rounded-full bg-yellow-500/90 backdrop-blur-sm flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-yellow-600 shadow-lg shadow-yellow-500/30 z-10"
+                            title="Edit song (Admin only)"
+                          >
+                            <Edit2 size={14} className="text-white" />
+                          </motion.button>
+                        )}
+
+                        {isAdmin && (
+                          <motion.button 
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`⚠️ ADMIN ACTION: Delete "${song.title}"?\n\nThis will remove this song for ALL users permanently!`)) {
+                                deleteUserSong(song.id, song.title);
+                              }
+                            }}
+                            className="absolute bottom-2 right-20 w-8 h-8 rounded-full bg-red-500/90 backdrop-blur-sm flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-red-600 shadow-lg shadow-red-500/30 z-10"
+                            title="Delete this song (Admin only)"
+                          >
+                            <Trash2 size={14} className="text-white" />
+                          </motion.button>
+                        )}
+                      </div>
+                      <h3 className="mt-2 text-sm font-semibold truncate">{song.title}</h3>
+                      <p className="text-gray-400 text-xs truncate">{song.artist}</p>
+                      
+                      {isAdmin && isUserSong && (
+                        <span className="absolute top-1 left-1 text-[8px] bg-purple-500/90 backdrop-blur-sm px-1.5 py-0.5 rounded-full text-white font-medium shadow-sm z-10">
+                          User
+                        </span>
+                      )}
+                    </motion.div>
+                  );
+                })}
               </div>
             </>
           )}
@@ -695,50 +1050,95 @@ export default function Home() {
                   </div>
                 </div>
               )}
-              {filteredSongs.map((song, i) => (
-                <motion.div
-                  key={song.title}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.02 }}
-                  className="group cursor-pointer"
-                  onClick={() => playSong(song.title)}
-                >
-                  <div className="relative rounded-xl overflow-hidden">
-                    <img
-                      src={song.cover}
-                      alt={song.title}
-                      className="w-full aspect-square object-cover transition-transform group-hover:scale-105 duration-300"
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <motion.button 
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedSong(song.title);
-                        setShowModal(true);
-                      }}
-                      className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-blue-500"
-                    >
-                      <Plus size={14} />
-                    </motion.button>
-                    <motion.button 
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={(e) => handleLike(e, song.title)}
-                      className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100 hover:bg-purple-500"
-                    >
-                      <Heart 
-                        size={14} 
-                        className={isLiked(song.title) ? "text-purple-400 fill-purple-400" : "text-white"}
+              {filteredSongs.map((song, i) => {
+                const isUserSong = !song.is_default;
+                
+                return (
+                  <motion.div
+                    key={song.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.02 }}
+                    className="group cursor-pointer relative"
+                    onClick={() => playSong(song.title)}
+                  >
+                    <div className="relative rounded-xl overflow-hidden">
+                      <img
+                        src={song.cover_url}
+                        alt={song.title}
+                        className="w-full aspect-square object-cover transition-transform group-hover:scale-105 duration-300"
                       />
-                    </motion.button>
-                  </div>
-                  <h3 className="mt-2 text-sm font-semibold truncate">{song.title}</h3>
-                  <p className="text-gray-400 text-xs truncate">{song.artist}</p>
-                </motion.div>
-              ))}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 transition-opacity" />
+                      
+                      <motion.button 
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedSong(song.title);
+                          setShowModal(true);
+                        }}
+                        className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-blue-500 z-10"
+                      >
+                        <Plus size={14} />
+                      </motion.button>
+                      
+                      <motion.button 
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={(e) => handleLike(e, song.title)}
+                        className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-purple-500 z-10"
+                      >
+                        <Heart 
+                          size={14} 
+                          className={isLiked(song.title) ? "text-purple-400 fill-purple-400" : "text-white"}
+                        />
+                      </motion.button>
+
+                      {isAdmin && (
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingSong(song);
+                            setShowEditModal(true);
+                          }}
+                          className="absolute bottom-2 right-12 w-8 h-8 rounded-full bg-yellow-500/90 backdrop-blur-sm flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-yellow-600 shadow-lg shadow-yellow-500/30 z-10"
+                          title="Edit song (Admin only)"
+                        >
+                          <Edit2 size={14} className="text-white" />
+                        </motion.button>
+                      )}
+
+                      {isAdmin && (
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`⚠️ ADMIN ACTION: Delete "${song.title}"?\n\nThis will remove this song for ALL users permanently!`)) {
+                              deleteUserSong(song.id, song.title);
+                            }
+                          }}
+                          className="absolute bottom-2 right-20 w-8 h-8 rounded-full bg-red-500/90 backdrop-blur-sm flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-red-600 shadow-lg shadow-red-500/30 z-10"
+                          title="Delete this song (Admin only)"
+                        >
+                          <Trash2 size={14} className="text-white" />
+                        </motion.button>
+                      )}
+                    </div>
+                    <h3 className="mt-2 text-sm font-semibold truncate">{song.title}</h3>
+                    <p className="text-gray-400 text-xs truncate">{song.artist}</p>
+                    
+                    {isAdmin && isUserSong && (
+                      <span className="absolute top-1 left-1 text-[8px] bg-purple-500/90 backdrop-blur-sm px-1.5 py-0.5 rounded-full text-white font-medium shadow-sm z-10">
+                        User
+                      </span>
+                    )}
+                  </motion.div>
+                );
+              })}
             </div>
           )}
 
@@ -800,7 +1200,7 @@ export default function Home() {
                   
                   {likedSongsList.map((song, index) => (
                     <motion.div
-                      key={song.title}
+                      key={song.id}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: index * 0.02 }}
@@ -813,7 +1213,7 @@ export default function Home() {
                         <div className="w-8 text-center text-gray-500 font-semibold">
                           {index + 1}
                         </div>
-                        <img src={song.cover} alt={song.title} className="w-16 h-16 rounded-2xl object-cover" />
+                        <img src={song.cover_url} alt={song.title} className="w-16 h-16 rounded-2xl object-cover" />
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold truncate">{song.title}</h3>
                           <p className="text-gray-400 text-sm truncate">{song.artist}</p>
@@ -848,117 +1248,124 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              selectedPlaylist && playlists.find(p => p.id === selectedPlaylist) ? (
-                <PlaylistView
-                  playlist={playlists.find(p => p.id === selectedPlaylist)!}
-                  songs={songs}
-                  onBack={() => {
-                    setSelectedPlaylist(null);
-                  }}
-                  onPlaySong={(title) => {
-                    const playlist = playlists.find(p => p.id === selectedPlaylist);
-                    if (playlist) {
-                      playSongFromPlaylist(title, playlist.songs, playlist.id);
-                    }
-                  }}
-                  onRenamePlaylist={renamePlaylist}
-                  onDeletePlaylist={handleDeletePlaylist}
-                  onRemoveSong={removeSongFromPlaylist}
-                  likedSongs={likedSongs}
-                  onToggleLike={toggleLike}
-                  isLiked={isLiked}
-                  onReorderSongs={reorderPlaylistSongs}
-                />
-              ) : (
-                <div>
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-2xl font-bold">Your Playlists</h3>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setShowCreateModal(true)}
-                      className="px-5 py-2 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition text-sm font-semibold shadow-lg shadow-blue-500/30"
-                    >
-                      + Create
-                    </motion.button>
-                  </div>
-
-                  {playlists.length === 0 && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="glass rounded-3xl p-16 text-center"
-                    >
-                      <div className="flex flex-col items-center justify-center gap-6">
-                        <div className="relative">
-                          <div className="w-28 h-28 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-600/20 flex items-center justify-center border border-white/10">
-                            <Disc3 size={56} className="text-blue-400" />
-                          </div>
-                          <motion.div 
-                            className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shadow-lg"
-                            animate={{ scale: [1, 1.1, 1] }}
-                            transition={{ duration: 2, repeat: Infinity }}
-                          >
-                            <Plus size={16} className="text-white" />
-                          </motion.div>
-                        </div>
-                        
-                        <div>
-                          <h4 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                            No Playlists Yet
-                          </h4>
-                          <p className="text-gray-400 mt-2 max-w-sm">
-                            Create your first playlist and start organizing your favorite tracks
-                          </p>
-                        </div>
-                        
+              (() => {
+                const currentPlaylist = playlists.find(p => p.id === selectedPlaylist);
+                if (selectedPlaylist && currentPlaylist) {
+                  return (
+                    <PlaylistView
+                      playlist={currentPlaylist}
+                      songs={allSongs.map(s => ({ title: s.title, artist: s.artist, cover: s.cover_url, src: s.audio_url }))}
+                      onBack={() => setSelectedPlaylist(null)}
+                      onPlaySong={(title) => {
+                        const playlist = playlists.find(p => p.id === selectedPlaylist);
+                        if (playlist) {
+                          playSongFromPlaylist(title, playlist.songs, playlist.id);
+                        }
+                      }}
+                      onRenamePlaylist={renamePlaylist}
+                      onDeletePlaylist={handleDeletePlaylist}
+                      onRemoveSong={removeSongFromPlaylist}
+                      likedSongs={likedSongs}
+                      onToggleLike={toggleLike}
+                      isLiked={isLiked}
+                      onReorderSongs={async (playlistId, newOrder) => {
+                        console.log("Reorder not implemented yet");
+                      }}
+                    />
+                  );
+                } else {
+                  return (
+                    <div>
+                      <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-2xl font-bold">Your Playlists</h3>
                         <motion.button
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           onClick={() => setShowCreateModal(true)}
-                          className="mt-4 px-8 py-3 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition font-semibold shadow-lg shadow-blue-500/30 flex items-center gap-2"
+                          className="px-5 py-2 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition text-sm font-semibold shadow-lg shadow-blue-500/30"
                         >
-                          <Plus size={18} />
-                          Create Playlist
+                          + Create
                         </motion.button>
                       </div>
-                    </motion.div>
-                  )}
 
-                  <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-                    {playlists.map((playlist, i) => (
-                      <motion.div
-                        key={playlist.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.05 }}
-                        onClick={() => setSelectedPlaylist(playlist.id)}
-                        className="group cursor-pointer"
-                      >
-                        <div className="relative rounded-xl overflow-hidden aspect-square">
-                          <RotatingPlaylistCover playlist={playlist} />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
-                          <motion.button 
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (playlist.songs.length > 0) {
-                                playSongFromPlaylist(playlist.songs[0], playlist.songs, playlist.id);
-                              }
-                            }}
-                            className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center shadow-lg md:opacity-0 md:group-hover:opacity-100 transition-all opacity-100"
+                      {playlists.length === 0 && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="glass rounded-3xl p-16 text-center"
+                        >
+                          <div className="flex flex-col items-center justify-center gap-6">
+                            <div className="relative">
+                              <div className="w-28 h-28 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-600/20 flex items-center justify-center border border-white/10">
+                                <Disc3 size={56} className="text-blue-400" />
+                              </div>
+                              <motion.div 
+                                className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shadow-lg"
+                                animate={{ scale: [1, 1.1, 1] }}
+                                transition={{ duration: 2, repeat: Infinity }}
+                              >
+                                <Plus size={16} className="text-white" />
+                              </motion.div>
+                            </div>
+                            
+                            <div>
+                              <h4 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                                No Playlists Yet
+                              </h4>
+                              <p className="text-gray-400 mt-2 max-w-sm">
+                                Create your first playlist and start organizing your favorite tracks
+                              </p>
+                            </div>
+                            
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => setShowCreateModal(true)}
+                              className="mt-4 px-8 py-3 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition font-semibold shadow-lg shadow-blue-500/30 flex items-center gap-2"
+                            >
+                              <Plus size={18} />
+                              Create Playlist
+                            </motion.button>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                        {playlists.map((playlistItem, i) => (
+                          <motion.div
+                            key={playlistItem.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: i * 0.05 }}
+                            onClick={() => setSelectedPlaylist(playlistItem.id)}
+                            className="group cursor-pointer"
                           >
-                            <Play size={18} className="ml-0.5" />
-                          </motion.button>
-                        </div>
-                        <h4 className="mt-2 font-semibold text-sm truncate">{playlist.name}</h4>
-                        <p className="text-gray-400 text-xs">{playlist.songs.length} songs</p>
-                      </motion.div>
-                    ))}
-                  </div>
-                </div>
-              )
+                            <div className="relative rounded-xl overflow-hidden aspect-square">
+                              <RotatingPlaylistCover playlist={playlistItem} allSongs={allSongs} />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <motion.button 
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (playlistItem.songs.length > 0) {
+                                    playSongFromPlaylist(playlistItem.songs[0], playlistItem.songs, playlistItem.id);
+                                  }
+                                }}
+                                className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center shadow-lg opacity-0 md:group-hover:opacity-100 transition-all duration-200"
+                              >
+                                <Play size={18} className="ml-0.5" />
+                              </motion.button>
+                            </div>
+                            <h4 className="mt-2 font-semibold text-sm truncate">{playlistItem.name}</h4>
+                            <p className="text-gray-400 text-xs">{playlistItem.songs.length} songs</p>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+              })()
             )
           )}
         </motion.section>
@@ -967,10 +1374,12 @@ export default function Home() {
       {showModal && (
         <PlaylistModal
           songTitle={selectedSong}
-          playlists={playlists}
+          playlists={playlists.map(p => ({ id: p.id, name: p.name, songs: p.songs, cover: p.cover_url || "", createdAt: p.created_at }))}
           onClose={() => setShowModal(false)}
-          onCreate={createPlaylist}
-          onAdd={addSongToPlaylist}
+          onCreate={handleCreatePlaylist}
+          onAdd={async (playlistId, songTitle) => {
+            await addSongToPlaylist(playlistId, songTitle);
+          }}
         />
       )}
 
@@ -984,8 +1393,52 @@ export default function Home() {
           >
             <div className="p-5 border-b border-white/10">
               <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent">Create Playlist</h2>
+              <p className="text-xs text-gray-500 mt-1">Add a custom cover image (optional)</p>
             </div>
             <div className="p-5">
+              <div className="mb-4">
+                <label className="text-sm text-gray-400 mb-2 block">Playlist Cover</label>
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500/20 to-purple-600/20 flex items-center justify-center">
+                    {playlistCoverPreview ? (
+                      <img src={playlistCoverPreview} alt="Cover preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <Disc3 size={28} className="text-blue-400/60" />
+                    )}
+                  </div>
+                  
+                  <div className="flex-1">
+                    <input
+                      ref={playlistCoverInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePlaylistCoverSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => playlistCoverInputRef.current?.click()}
+                      className="w-full px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition text-sm flex items-center justify-center gap-2"
+                    >
+                      <ImageIcon size={16} />
+                      {playlistCoverFile ? "Change Cover" : "Upload Cover"}
+                    </button>
+                    {playlistCoverFile && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPlaylistCoverFile(null);
+                          setPlaylistCoverPreview("");
+                        }}
+                        className="mt-2 text-xs text-red-400 hover:text-red-300 w-full text-center"
+                      >
+                        Remove Cover
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <input
                 type="text"
                 value={tempPlaylistName}
@@ -993,13 +1446,14 @@ export default function Home() {
                 placeholder="Playlist name"
                 className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
                 autoFocus
-                onKeyDown={(e) => e.key === "Enter" && handleCreatePlaylist()}
+                onKeyDown={(e) => e.key === "Enter" && handleCreatePlaylist(tempPlaylistName, playlistCoverFile)}
               />
+              
               <div className="flex gap-2 mt-4">
                 <motion.button 
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={handleCreatePlaylist} 
+                  onClick={() => handleCreatePlaylist(tempPlaylistName, playlistCoverFile)} 
                   className="flex-1 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 font-medium"
                 >
                   Create
@@ -1007,7 +1461,12 @@ export default function Home() {
                 <motion.button 
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => setShowCreateModal(false)} 
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setPlaylistCoverFile(null);
+                    setPlaylistCoverPreview("");
+                    setTempPlaylistName("");
+                  }} 
                   className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition"
                 >
                   Cancel
@@ -1019,8 +1478,8 @@ export default function Home() {
       )}
 
       <MusicPlayer
-        songs={songs}
-        currentSong={currentSong}
+        songs={allSongs.map(s => ({ title: s.title, artist: s.artist, cover: s.cover_url, src: s.audio_url }))}
+        currentSong={{ title: currentSong?.title || "", artist: currentSong?.artist || "", cover: currentSong?.cover_url || "", src: currentSong?.audio_url || "" }}
         currentIndex={currentIndex}
         setCurrentIndex={setCurrentIndex}
         currentQueue={currentQueue}
@@ -1033,7 +1492,24 @@ export default function Home() {
         onClose={() => setShowAuthModal(false)}
       />
 
-      {/* Back to Top Button */}
+      <DownloadSongModal
+        isOpen={showDownloadModal}
+        onClose={() => setShowDownloadModal(false)}
+        onAddSong={addUserSong}
+      />
+
+      <AdminEditSongModal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingSong(null);
+        }}
+        song={editingSong}
+        onSave={updateSong}
+        onUploadAudio={uploadAudioFile}
+        onUploadCover={uploadCoverImage}
+      />
+
       <AnimatePresence>
         {showBackToTop && (
           <motion.button

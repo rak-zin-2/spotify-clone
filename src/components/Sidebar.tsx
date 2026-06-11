@@ -1,9 +1,10 @@
+// components/Sidebar.tsx
 "use client";
 
 import { House, Search, Library, Disc3, Heart, PlusCircle, ChevronLeft, ChevronRight, LogOut, ChevronDown } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePlaylist } from "@/hooks/usePlaylist";
+import { useSupabasePlaylist } from "@/hooks/useSupabasePlaylist";
 
 type Props = {
   activeTab: string;
@@ -30,13 +31,11 @@ export default function Sidebar({
 }: Props) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showPlaylistsDropdown, setShowPlaylistsDropdown] = useState(false);
-  const { playlists } = usePlaylist();
+  const { playlists } = useSupabasePlaylist();
 
-  // Force re-render when playlists change
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    // Listen for playlist changes
     const handlePlaylistChange = () => {
       setRefreshKey(prev => prev + 1);
     };
@@ -56,13 +55,10 @@ export default function Sidebar({
   // Handle navigation - ONLY scroll when clicking Home while already on Home
   const handleNavigation = (tabId: string) => {
     if (tabId === "home" && activeTab === "home") {
-      // Clicking Home when already on Home - scroll to top
       scrollWindowToTop();
     } else if (tabId === "search" && activeTab === "search") {
-      // Clicking Search when already on Search - scroll to top
       scrollWindowToTop();
     } else {
-      // Normal tab switching - NO scrolling
       setActiveTab(tabId);
     }
   };
@@ -99,7 +95,7 @@ export default function Sidebar({
         className="hidden md:block fixed left-0 top-0 h-screen z-40"
       >
         <div className="h-full bg-gradient-to-b from-black/95 to-black/98 backdrop-blur-xl border-r border-white/10 flex flex-col">
-          {/* Logo Section with User Profile */}
+          {/* Logo Section */}
           <div className={`p-6 flex ${isCollapsed ? 'justify-center flex-col items-center gap-3' : 'items-center justify-between'}`}>
             <div className={`flex ${isCollapsed ? 'flex-col items-center' : 'items-center gap-3'}`}>
               <div className="relative">
@@ -129,7 +125,7 @@ export default function Sidebar({
               )}
             </div>
 
-            {/* User Profile/Sign In Button - Desktop */}
+            {/* User Profile/Sign In Button */}
             {!isCollapsed && (
               <div className="ml-auto">
                 {user ? (
@@ -339,7 +335,6 @@ export default function Sidebar({
                       />
                     </motion.div>
 
-                    {/* Dropdown Content with Images */}
                     <AnimatePresence>
                       {showPlaylistsDropdown && (
                         <motion.div
@@ -362,11 +357,10 @@ export default function Sidebar({
                                 onClick={() => handlePlaylistClick(playlist.id)}
                                 className="w-full text-left px-3 py-2 rounded-lg transition-all duration-200 flex items-center gap-3"
                               >
-                                {/* Playlist Cover Image */}
                                 <div className="w-8 h-8 rounded-md overflow-hidden flex-shrink-0">
-                                  {playlist.cover && playlist.cover !== "" ? (
+                                  {playlist.cover_url && playlist.cover_url !== "" ? (
                                     <img
-                                      src={playlist.cover}
+                                      src={playlist.cover_url}
                                       alt={playlist.name}
                                       className="w-full h-full object-cover"
                                     />
@@ -377,7 +371,6 @@ export default function Sidebar({
                                   )}
                                 </div>
                                 
-                                {/* Playlist Info */}
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm text-gray-300 truncate">{playlist.name}</p>
                                   <p className="text-xs text-gray-500">{playlist.songs.length} songs</p>

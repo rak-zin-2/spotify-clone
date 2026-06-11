@@ -1,9 +1,10 @@
+// components/AuthModal.tsx
 "use client";
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Lock, X, LogIn, User } from "lucide-react";
-import { useAuth } from "@/hooks/useAuth";
+import { Mail, Lock, X, LogIn, User, Loader2, Shield } from "lucide-react";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 
 type Props = {
   isOpen: boolean;
@@ -11,10 +12,11 @@ type Props = {
 };
 
 export default function AuthModal({ isOpen, onClose }: Props) {
-  const { signIn, isLoading } = useAuth();
+  const { signIn, loading } = useSupabaseAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDemoInfo, setShowDemoInfo] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -26,14 +28,17 @@ export default function AuthModal({ isOpen, onClose }: Props) {
       return;
     }
     
-    const success = await signIn(email, password);
+    setIsSubmitting(true);
     
-    if (success) {
+    try {
+      await signIn(email, password);
       onClose();
       setEmail("");
       setPassword("");
-    } else {
-      setError("Invalid email or password. Please try again.");
+    } catch (err: any) {
+      setError(err.message || "Invalid email or password. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -125,11 +130,11 @@ export default function AuthModal({ isOpen, onClose }: Props) {
                 type="submit"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                disabled={isLoading}
+                disabled={isSubmitting}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition font-medium shadow-lg shadow-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                {isSubmitting ? (
+                  <Loader2 size={18} className="animate-spin" />
                 ) : (
                   <>
                     <LogIn size={18} />
@@ -161,69 +166,37 @@ export default function AuthModal({ isOpen, onClose }: Props) {
                     exit={{ opacity: 0, height: 0 }}
                     className="space-y-2 overflow-hidden"
                   >
-                    <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                    {/* <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
                       <div className="flex items-center gap-2 mb-2">
-                        <User size={14} className="text-purple-400" />
-                        <span className="text-xs font-semibold text-purple-400">Alex Johnson</span>
+                        <Shield size={14} className="text-red-400" />
+                        <span className="text-xs font-semibold text-red-400">Admin Account</span>
                       </div>
-                      <p className="text-xs text-gray-300">Email: alex@example.com</p>
-                      <p className="text-xs text-gray-300">Password: music123</p>
+                      <p className="text-xs text-gray-300">Email: admin@example.com</p>
+                      <p className="text-xs text-gray-300">Password: admin123</p>
                       <button
                         type="button"
-                        onClick={() => fillDemoCredentials("alex@example.com", "music123")}
-                        className="mt-2 text-xs text-blue-400 hover:text-blue-300"
-                      >
-                        Click to auto-fill →
-                      </button>
-                    </div>
-
-                    <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
-                      <div className="flex items-center gap-2 mb-2">
-                        <User size={14} className="text-purple-400" />
-                        <span className="text-xs font-semibold text-purple-400">Sarah Williams</span>
-                      </div>
-                      <p className="text-xs text-gray-300">Email: sarah@example.com</p>
-                      <p className="text-xs text-gray-300">Password: sarah123</p>
-                      <button
-                        type="button"
-                        onClick={() => fillDemoCredentials("sarah@example.com", "sarah123")}
-                        className="mt-2 text-xs text-blue-400 hover:text-blue-300"
-                      >
-                        Click to auto-fill →
-                      </button>
-                    </div>
-
-                    <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
-                      <div className="flex items-center gap-2 mb-2">
-                        <User size={14} className="text-purple-400" />
-                        <span className="text-xs font-semibold text-purple-400">Mike Brown</span>
-                      </div>
-                      <p className="text-xs text-gray-300">Email: mike@example.com</p>
-                      <p className="text-xs text-gray-300">Password: mike123</p>
-                      <button
-                        type="button"
-                        onClick={() => fillDemoCredentials("mike@example.com", "mike123")}
-                        className="mt-2 text-xs text-blue-400 hover:text-blue-300"
-                      >
-                        Click to auto-fill →
-                      </button>
-                    </div>
-
-                    {/* <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
-                      <div className="flex items-center gap-2 mb-2">
-                        <User size={14} className="text-purple-400" />
-                        <span className="text-xs font-semibold text-purple-400">Emma Davis</span>
-                      </div>
-                      <p className="text-xs text-gray-300">Email: emma@example.com</p>
-                      <p className="text-xs text-gray-300">Password: emma123</p>
-                      <button
-                        type="button"
-                        onClick={() => fillDemoCredentials("emma@example.com", "emma123")}
+                        onClick={() => fillDemoCredentials("admin@example.com", "admin123")}
                         className="mt-2 text-xs text-blue-400 hover:text-blue-300"
                       >
                         Click to auto-fill →
                       </button>
                     </div> */}
+
+                    <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                      <div className="flex items-center gap-2 mb-2">
+                        <User size={14} className="text-purple-400" />
+                        <span className="text-xs font-semibold text-purple-400">Regular User</span>
+                      </div>
+                      <p className="text-xs text-gray-300">Email: user@example.com</p>
+                      <p className="text-xs text-gray-300">Password: user123</p>
+                      <button
+                        type="button"
+                        onClick={() => fillDemoCredentials("user@example.com", "user123")}
+                        className="mt-2 text-xs text-blue-400 hover:text-blue-300"
+                      >
+                        Click to auto-fill →
+                      </button>
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>

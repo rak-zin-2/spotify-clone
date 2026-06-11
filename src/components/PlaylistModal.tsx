@@ -1,15 +1,26 @@
+// components/PlaylistModal.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Playlist } from "@/types/playlist";
-import { Plus, X, Check } from "lucide-react";
+import { Plus, X, Check, Image, Loader2 } from "lucide-react";
+import { motion } from "framer-motion";
+import { supabase } from "@/lib/supabase/client";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
+
+type Playlist = {
+  id: string;
+  name: string;
+  songs: string[];
+  cover?: string;
+  createdAt: string;
+};
 
 type Props = {
   songTitle: string;
   playlists: Playlist[];
   onClose: () => void;
-  onCreate: (name: string) => void;
-  onAdd: (playlistId: string, songTitle: string) => void;
+  onCreate: (name: string, coverFile?: File | null) => Promise<void>;
+  onAdd: (playlistId: string, songTitle: string) => Promise<void>;
 };
 
 export default function PlaylistModal({
@@ -22,9 +33,13 @@ export default function PlaylistModal({
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [addedTo, setAddedTo] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState("");
   const modalRef = useRef<HTMLDivElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const { user } = useSupabaseAuth();
 
-  // Handle click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
@@ -35,7 +50,6 @@ export default function PlaylistModal({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [onClose]);
 
-  // Handle escape key
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -44,20 +58,43 @@ export default function PlaylistModal({
     return () => document.removeEventListener("keydown", handleEscape);
   }, [onClose]);
 
-  const handleCreatePlaylist = () => {
-    if (!newName.trim()) return;
-    onCreate(newName.trim());
-    setNewName("");
-    setIsCreating(false);
+  const handleCoverSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith("image/")) {
+      setCoverFile(file);
+      setCoverPreview(URL.createObjectURL(file));
+    }
   };
 
-  const handleAddToPlaylist = (playlistId: string) => {
-    onAdd(playlistId, songTitle);
-    setAddedTo([...addedTo, playlistId]);
-    // Show success then close after delay
-    setTimeout(() => {
-      onClose();
-    }, 500);
+  const handleCreatePlaylist = async () => {
+    if (!newName.trim()) return;
+    setIsLoading(true);
+    try {
+      await onCreate(newName.trim(), coverFile);
+      setNewName("");
+      setCoverFile(null);
+      setCoverPreview("");
+      setIsCreating(false);
+    } catch (error) {
+      console.error("Failed to create playlist:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAddToPlaylist = async (playlistId: string) => {
+    setIsLoading(true);
+    try {
+      await onAdd(playlistId, songTitle);
+      setAddedTo([...addedTo, playlistId]);
+      setTimeout(() => {
+        onClose();
+      }, 500);
+    } catch (error) {
+      console.error("Failed to add to playlist:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -66,7 +103,6 @@ export default function PlaylistModal({
         ref={modalRef}
         className="w-full max-w-md bg-gradient-to-b from-zinc-900 to-zinc-950 rounded-2xl shadow-2xl border border-white/10 overflow-hidden animate-in zoom-in-95 duration-200"
       >
-        {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-white/10">
           <div>
             <h2 className="text-xl font-bold">Add to playlist</h2>
@@ -80,7 +116,6 @@ export default function PlaylistModal({
           </button>
         </div>
 
-        {/* Playlists list */}
         <div className="max-h-96 overflow-y-auto">
           {playlists.length === 0 && !isCreating && (
             <div className="p-8 text-center">
@@ -94,9 +129,9 @@ export default function PlaylistModal({
             <button
               key={playlist.id}
               onClick={() => handleAddToPlaylist(playlist.id)}
-              className="w-full flex items-center gap-4 p-4 hover:bg-white/5 transition-colors group border-b border-white/5"
+              disabled={isLoading}
+              className="w-full flex items-center gap-4 p-4 hover:bg-white/5 transition-colors group border-b border-white/5 disabled:opacity-50"
             >
-              {/* Playlist cover */}
               {playlist.cover && playlist.cover !== "" ? (
                 <img
                   src={playlist.cover}
@@ -109,7 +144,6 @@ export default function PlaylistModal({
                 </div>
               )}
               
-              {/* Playlist info */}
               <div className="flex-1 text-left">
                 <h3 className="font-semibold">{playlist.name}</h3>
                 <p className="text-xs text-gray-400">
@@ -117,7 +151,6 @@ export default function PlaylistModal({
                 </p>
               </div>
 
-              {/* Checkmark if added */}
               {addedTo.includes(playlist.id) ? (
                 <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
                   <Check size={14} className="text-white" />
@@ -128,7 +161,6 @@ export default function PlaylistModal({
             </button>
           ))}
 
-          {/* Create new playlist section */}
           {!isCreating ? (
             <button
               onClick={() => setIsCreating(true)}
@@ -145,9 +177,34 @@ export default function PlaylistModal({
           ) : (
             <div className="p-4 border-t border-white/10 bg-white/5">
               <div className="flex gap-3">
-                <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                  <span className="text-2xl">✨</span>
+                {/* Playlist Cover Preview */}
+                <div className="flex-shrink-0">
+                  {coverPreview ? (
+                    <img
+                      src={coverPreview}
+                      alt="Playlist cover"
+                      className="w-12 h-12 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                      <span className="text-2xl">✨</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => coverInputRef.current?.click()}
+                    className="mt-1 text-[10px] text-blue-400 hover:text-blue-300 w-full text-center"
+                  >
+                    Add cover
+                  </button>
+                  <input
+                    ref={coverInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleCoverSelect}
+                    className="hidden"
+                  />
                 </div>
+                
                 <div className="flex-1">
                   <input
                     type="text"
@@ -156,6 +213,7 @@ export default function PlaylistModal({
                     placeholder="My awesome playlist"
                     className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:border-blue-400 transition-colors text-sm"
                     autoFocus
+                    disabled={isLoading}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleCreatePlaylist();
                     }}
@@ -163,12 +221,18 @@ export default function PlaylistModal({
                   <div className="flex gap-2 mt-2">
                     <button
                       onClick={handleCreatePlaylist}
-                      className="flex-1 px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-400 transition text-sm font-medium"
+                      disabled={isLoading}
+                      className="flex-1 px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-400 transition text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-1"
                     >
-                      Create
+                      {isLoading ? <Loader2 size={14} className="animate-spin" /> : null}
+                      {isLoading ? "Creating..." : "Create"}
                     </button>
                     <button
-                      onClick={() => setIsCreating(false)}
+                      onClick={() => {
+                        setIsCreating(false);
+                        setCoverFile(null);
+                        setCoverPreview("");
+                      }}
                       className="flex-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition text-sm"
                     >
                       Cancel
@@ -180,7 +244,6 @@ export default function PlaylistModal({
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-4 border-t border-white/10">
           <button
             onClick={onClose}

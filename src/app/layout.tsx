@@ -1,7 +1,6 @@
+// app/layout.tsx
 import type { Metadata } from "next";
 import "./globals.css";
-import { AuthProvider } from "@/hooks/useAuth";
-import { PendingChangesProvider } from "@/hooks/usePendingChanges";
 import AuthGuard from "@/components/AuthGuard";
 
 export const metadata: Metadata = {
@@ -61,13 +60,9 @@ export default function RootLayout({
         <link rel="shortcut icon" href="/favicon.ico" />
       </head>
       <body>
-        <AuthProvider>
-          <PendingChangesProvider>
-            <AuthGuard>
-              {children}
-            </AuthGuard>
-          </PendingChangesProvider>
-        </AuthProvider>
+        <AuthGuard>
+          {children}
+        </AuthGuard>
       </body>
     </html>
   );

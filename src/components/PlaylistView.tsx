@@ -1,7 +1,6 @@
 "use client";
 
 import { ArrowLeft, Play, MoreVertical, Pencil, Trash2, Heart, Music, Disc3 } from "lucide-react";
-import { Playlist } from "@/types/playlist";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -12,8 +11,16 @@ type Song = {
   src: string;
 };
 
+type PlaylistType = {
+  id: string;
+  name: string;
+  songs: string[];
+  cover_url?: string | null;
+  created_at: string;
+};
+
 type Props = {
-  playlist: Playlist;
+  playlist: PlaylistType;
   songs: Song[];
   onBack: () => void;
   onPlaySong: (title: string) => void;
@@ -47,8 +54,9 @@ export default function PlaylistView({
   const menuRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
+  // Safely get playlist songs
   const playlistSongs = allSongs.filter((song) =>
-    playlist.songs.includes(song.title)
+    playlist.songs?.includes(song.title) || false
   );
 
   useEffect(() => {
@@ -112,8 +120,8 @@ export default function PlaylistView({
 
   const getCoverImages = () => {
     const covers = playlistSongs.map(song => song.cover).filter(cover => cover);
-    if (playlist.cover && playlist.cover !== "") {
-      return [playlist.cover, ...covers];
+    if (playlist.cover_url && playlist.cover_url !== "") {
+      return [playlist.cover_url, ...covers];
     }
     return covers.length > 0 ? covers : [];
   };
@@ -307,7 +315,7 @@ export default function PlaylistView({
                 </motion.p>
                 <span className="text-gray-600">•</span>
                 <p className="text-gray-500 text-sm">
-                  Created {new Date(playlist.createdAt).toLocaleDateString()}
+                  Created {new Date(playlist.created_at).toLocaleDateString()}
                 </p>
               </div>
             </div>
@@ -415,7 +423,7 @@ export default function PlaylistView({
                       >
                         <Heart 
                           size={14} 
-                          className={isLiked?.(song.title) ? "text-purple-400 fill-purple-400" : "text-gray-400 hover:text-purple-400"}
+                          className={isLiked && isLiked(song.title) ? "text-purple-400 fill-purple-400" : "text-gray-400 hover:text-purple-400"}
                         />
                       </motion.button>
 
