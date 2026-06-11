@@ -33,6 +33,12 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
   const audioInputRef = useRef<HTMLInputElement>(null);
   const { user } = useSupabaseAuth();
 
+  // Check if device is mobile
+  const isMobile = () => {
+    if (typeof window === 'undefined') return false;
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  };
+
   const handleCoverSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && file.type.startsWith("image/")) {
@@ -46,11 +52,24 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
 
   const handleAudioSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && file.type.startsWith("audio/")) {
-      setAudioFile(file);
-      setError("");
-    } else {
-      setError("Please select a valid audio file (MP3, WAV, etc.)");
+    if (file) {
+      // Check by MIME type or file extension for better mobile support
+      const isAudio = file.type.startsWith("audio/") || 
+                      file.name.endsWith('.mp3') || 
+                      file.name.endsWith('.wav') || 
+                      file.name.endsWith('.ogg') ||
+                      file.name.endsWith('.m4a') ||
+                      file.name.endsWith('.aac') ||
+                      file.name.endsWith('.flac') ||
+                      file.name.endsWith('.webm');
+      
+      if (isAudio) {
+        setAudioFile(file);
+        setError("");
+        console.log("Audio file selected:", file.name, file.type, (file.size / 1024 / 1024).toFixed(2) + "MB");
+      } else {
+        setError("Please select a valid audio file (MP3, WAV, OGG, M4A, AAC, FLAC)");
+      }
     }
   };
 
@@ -61,11 +80,14 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
     const safeArtist = artist.trim().replace(/[^a-zA-Z0-9]/g, '_');
     const fileName = `${folder}/${timestamp}_${safeArtist}_${safeTitle}.${fileExt}`;
     
+    console.log(`Uploading to ${bucket}: ${fileName}`);
+    
     const { error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(fileName, file, {
         cacheControl: '3600',
         upsert: true,
+        contentType: file.type || 'audio/mpeg',
       });
     
     if (uploadError) throw uploadError;
@@ -89,7 +111,13 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
     }
     
     if (!audioFile) {
-      setError("Please select an audio file");
+      setError("Please select an audio file. Tap 'Choose File' to select a song from your device.");
+      return;
+    }
+
+    // Check file size (max 50MB)
+    if (audioFile.size > 50 * 1024 * 1024) {
+      setError("Audio file is too large. Maximum size is 50MB.");
       return;
     }
 
@@ -100,13 +128,16 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
     try {
       // Upload audio file
       setUploadProgress(30);
+      console.log("Uploading audio file...");
       const audioUrl = await uploadFileToSupabase(audioFile, "song-audio", "audios");
+      console.log("Audio uploaded:", audioUrl);
       
       // Upload cover image (or use default)
       setUploadProgress(60);
       let coverUrl = "https://via.placeholder.com/300x300/1e1e2f/3B82F6?text=Custom+Song";
       if (coverFile) {
         coverUrl = await uploadFileToSupabase(coverFile, "song-covers", "covers");
+        console.log("Cover uploaded:", coverUrl);
       }
 
       setUploadProgress(100);
@@ -134,7 +165,8 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
       }, 1500);
       
     } catch (err: any) {
-      setError(err.message || "Failed to upload song");
+      console.error("Upload error:", err);
+      setError(err.message || "Failed to upload song. Please check your connection and try again.");
       setUploadProgress(0);
     } finally {
       setIsLoading(false);
@@ -157,7 +189,7 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
                 <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
                   Add Custom Song
                 </h2>
-                <p className="text-xs text-gray-500 mt-1">Upload your own music</p>
+                <p className="text-xs text-gray-500 mt-1">Upload your own music from your device</p>
               </div>
               <button
                 onClick={onClose}
@@ -169,6 +201,15 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
 
             {/* Content */}
             <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+              {/* Mobile Help Text */}
+              {isMobile() && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-2">
+                  <p className="text-xs text-blue-400 text-center">
+                    📱 On mobile: Tap "Choose File" then select "Browse" or "Files" to find your audio
+                  </p>
+                </div>
+              )}
+
               {/* Song Details */}
               <div className="space-y-3">
                 <div>
@@ -219,13 +260,13 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
                   ) : (
                     <div className="flex items-center justify-center gap-2">
                       <Image size={20} className="text-gray-500 group-hover:text-blue-400 transition" />
-                      <p className="text-gray-400 text-sm">Click to select cover image</p>
+                      <p className="text-gray-400 text-sm">Tap to select cover image</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Audio File Upload */}
+              {/* Audio File Upload - Mobile Optimized */}
               <div>
                 <label className="text-sm text-gray-400 mb-1 block">Audio File *</label>
                 <div
@@ -235,20 +276,22 @@ export default function DownloadSongModal({ isOpen, onClose, onAddSong }: Downlo
                   <input
                     ref={audioInputRef}
                     type="file"
-                    accept="audio/*"
+                    accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.webm"
                     onChange={handleAudioSelect}
                     className="hidden"
                   />
                   <Music size={32} className="mx-auto text-gray-500 group-hover:text-blue-400 transition mb-2" />
                   {audioFile ? (
                     <div>
-                      <p className="text-green-400 text-sm">{audioFile.name}</p>
-                      <p className="text-xs text-gray-500 mt-1">Click to change file</p>
+                      <p className="text-green-400 text-sm font-medium">{audioFile.name}</p>
+                      <p className="text-xs text-gray-500 mt-1">Tap to change file</p>
+                      <p className="text-xs text-gray-500">Size: {(audioFile.size / 1024 / 1024).toFixed(2)} MB</p>
                     </div>
                   ) : (
                     <div>
-                      <p className="text-gray-400 text-sm">Click to select audio file</p>
-                      <p className="text-xs text-gray-500 mt-1">MP3, WAV, OGG up to 50MB</p>
+                      <p className="text-gray-400 text-sm">Tap to select audio file</p>
+                      <p className="text-xs text-gray-500 mt-1">MP3, WAV, OGG, M4A, AAC, FLAC (Max 50MB)</p>
+                      <p className="text-xs text-blue-400 mt-2">💡 Tip: On iPhone, use Files app to select downloaded music</p>
                     </div>
                   )}
                 </div>
