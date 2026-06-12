@@ -6,7 +6,7 @@ import AuthGuard from "@/components/AuthGuard";
 export const metadata: Metadata = {
   title: "PavPav - Music Streaming",
   description: "Your favorite music streaming platform",
-  manifest: "/site.webmanifest",
+  manifest: "/manifest.webmanifest", // Changed from /site.webmanifest
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -26,18 +26,17 @@ export const metadata: Metadata = {
   formatDetection: {
     telephone: false,
   },
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-    viewportFit: "cover",
-  },
+  // Remove viewport and themeColor from metadata (they moved to separate export)
+};
+
+// Add separate viewport export (required for Next.js 16+)
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
   themeColor: "#4f7cff",
-  other: {
-    "msapplication-TileColor": "#4f7cff",
-    "msapplication-config": "/browserconfig.xml",
-  },
 };
 
 export default function RootLayout({
@@ -48,7 +47,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <link rel="manifest" href="/site.webmanifest" />
+        <link rel="manifest" href="/manifest.webmanifest" />
         <meta name="theme-color" content="#4f7cff" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
