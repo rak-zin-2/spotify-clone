@@ -578,10 +578,10 @@ export default function Sidebar({
         </div>
       </motion.aside>
 
-      {/* MOBILE TOPBAR */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-40">
-        <div className="bg-black/90 backdrop-blur-xl border-b border-white/10 px-3 py-2">
-          <div className="flex items-center justify-between">
+      {/* MOBILE TOPBAR - FIXED WITH SAFE AREA PADDING */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-40 pt-safe">
+        <div className="bg-black/90 backdrop-blur-xl border-b border-white/10 px-3 pb-2">
+          <div className="flex items-center justify-between pt-2">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
                 <Disc3 className="text-white" size={18} />

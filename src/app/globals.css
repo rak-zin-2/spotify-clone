@@ -447,3 +447,19 @@ aside .overflow-y-auto::-webkit-scrollbar-thumb:hover {
   position: relative;
   z-index: 50;
 }
+/* Safe area support for notched phones (iPhone, etc.) */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+
+.pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
