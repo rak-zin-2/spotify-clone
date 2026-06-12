@@ -1,7 +1,7 @@
 // hooks/useSupabaseAuth.ts
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 
 type UserType = {
@@ -15,6 +15,20 @@ type UserType = {
 export function useSupabaseAuth() {
   const [user, setUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const fetchUserProfile = useCallback(async (authUser: any) => {
+    // Check if user is admin by email
+    const isAdmin = authUser.email === 'virak@gmail.com';
+    
+    setUser({
+      id: authUser.id,
+      name: authUser.user_metadata?.username || authUser.email?.split('@')[0] || 'User',
+      email: authUser.email,
+      picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(authUser.email?.[0] || 'U')}&background=4f7cff&color=fff`,
+      role: isAdmin ? 'admin' : 'user',
+    });
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     // Get initial session
@@ -37,29 +51,15 @@ export function useSupabaseAuth() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchUserProfile]);
 
-  const fetchUserProfile = async (authUser: any) => {
-    // Check if user is admin by email
-    const isAdmin = authUser.email === 'virak@gmail.com';
-    
-    setUser({
-      id: authUser.id,
-      name: authUser.user_metadata?.username || authUser.email?.split('@')[0] || 'User',
-      email: authUser.email,
-      picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(authUser.email?.[0] || 'U')}&background=4f7cff&color=fff`,
-      role: isAdmin ? 'admin' : 'user',
-    });
-    setLoading(false);
-  };
-
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { error, data } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return data;
-  };
+  }, []);
 
-  const signUp = async (email: string, password: string, username: string) => {
+  const signUp = useCallback(async (email: string, password: string, username: string) => {
     const { error, data } = await supabase.auth.signUp({ 
       email, 
       password,
@@ -67,12 +67,12 @@ export function useSupabaseAuth() {
     });
     if (error) throw error;
     return data;
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setUser(null);
-  };
+  }, []);
 
   const isAdmin = user?.role === 'admin';
 

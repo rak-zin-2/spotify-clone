@@ -386,3 +386,64 @@ section {
 body.modal-open {
   overflow: hidden;
 }
+/* Custom scrollbar for sidebar dropdowns */
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+.scrollbar-thumb-white\/10::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-thumb-white\/10::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.scrollbar-thumb-white\/10::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.scrollbar-thumb-white\/10::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.scrollbar-track-transparent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Ensure sidebar content doesn't get cut off */
+aside .overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+aside .overflow-y-auto::-webkit-scrollbar {
+  width: 4px;
+}
+
+aside .overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+aside .overflow-y-auto::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+aside .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Max height for dropdown containers */
+.max-h-64 {
+  max-height: 16rem;
+}
+
+/* Ensure dropdowns have proper z-index */
+.artists-dropdown-content,
+.playlists-dropdown-content {
+  position: relative;
+  z-index: 50;
+}

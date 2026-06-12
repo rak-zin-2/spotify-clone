@@ -1,8 +1,11 @@
 "use client";
 
-import { ArrowLeft, Play, MoreVertical, Pencil, Trash2, Heart, Music, Disc3 } from "lucide-react";
+import { ArrowLeft, Play, MoreVertical, Pencil, Trash2, Heart, Music, Disc3, Mic, X, Plus, Check } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { supabase } from "@/lib/supabase/client";
+import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
+import { useSupabasePlaylist } from "@/hooks/useSupabasePlaylist";
 
 type Song = {
   title: string;
@@ -19,6 +22,21 @@ type PlaylistType = {
   created_at: string;
 };
 
+type Artist = {
+  id: string;
+  name: string;
+  cover_url: string | null;
+  bio: string | null;
+};
+
+type Playlist = {
+  id: string;
+  name: string;
+  songs: string[];
+  cover_url?: string | null;
+  created_at: string;
+};
+
 type Props = {
   playlist: PlaylistType;
   songs: Song[];
@@ -27,10 +45,12 @@ type Props = {
   onRenamePlaylist?: (playlistId: string, newName: string) => void;
   onDeletePlaylist?: (playlistId: string) => void;
   onRemoveSong?: (playlistId: string, songTitle: string) => void;
+  onAddToPlaylist?: (playlistId: string, songTitle: string) => void;
   likedSongs?: string[];
   onToggleLike?: (songTitle: string) => void;
   isLiked?: (songTitle: string) => boolean;
   onReorderSongs?: (playlistId: string, newOrder: string[]) => void;
+  allPlaylists?: Playlist[];
 };
 
 export default function PlaylistView({
@@ -41,10 +61,12 @@ export default function PlaylistView({
   onRenamePlaylist,
   onDeletePlaylist,
   onRemoveSong,
+  onAddToPlaylist,
   likedSongs = [],
   onToggleLike,
   isLiked,
   onReorderSongs,
+  allPlaylists = [],
 }: Props) {
   const [showMenu, setShowMenu] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -54,10 +76,36 @@ export default function PlaylistView({
   const menuRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
+  // Add to Artist states
+  const [showAddToArtistModal, setShowAddToArtistModal] = useState(false);
+  const [selectedSongForArtist, setSelectedSongForArtist] = useState<Song | null>(null);
+  const [artistsList, setArtistsList] = useState<Artist[]>([]);
+  const [isAddingToArtist, setIsAddingToArtist] = useState(false);
+
+  // Add to Playlist states
+  const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
+  const [selectedSongForPlaylist, setSelectedSongForPlaylist] = useState<Song | null>(null);
+  const [isAddingToPlaylist, setIsAddingToPlaylist] = useState(false);
+  const [addedToPlaylist, setAddedToPlaylist] = useState<string[]>([]);
+
+  const { isAdmin } = useSupabaseAuth();
+  const { playlists: userPlaylists } = useSupabasePlaylist();
+
   // Safely get playlist songs
   const playlistSongs = allSongs.filter((song) =>
     playlist.songs?.includes(song.title) || false
   );
+
+  // Fetch artists for the modal (only for admin)
+  useEffect(() => {
+    if (isAdmin) {
+      const fetchArtists = async () => {
+        const { data } = await supabase.from('artists').select('*');
+        if (data) setArtistsList(data);
+      };
+      fetchArtists();
+    }
+  }, [isAdmin]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -118,6 +166,53 @@ export default function PlaylistView({
     onToggleLike?.(songTitle);
   };
 
+  const handleAddToArtist = async (song: Song, artistName: string) => {
+    if (!isAdmin) {
+      alert("Only admins can assign songs to artists");
+      return;
+    }
+    
+    setIsAddingToArtist(true);
+    try {
+      const { error } = await supabase
+        .from('songs')
+        .update({ artist: artistName })
+        .eq('title', song.title);
+      
+      if (error) throw error;
+      
+      alert(`✅ "${song.title}" has been added to "${artistName}"`);
+      setShowAddToArtistModal(false);
+      setSelectedSongForArtist(null);
+      
+      window.location.reload();
+    } catch (error) {
+      console.error("Error adding song to artist:", error);
+      alert("Failed to add song to artist. Please try again.");
+    } finally {
+      setIsAddingToArtist(false);
+    }
+  };
+
+  const handleAddToPlaylist = async (playlistId: string, songTitle: string) => {
+    setIsAddingToPlaylist(true);
+    try {
+      await onAddToPlaylist?.(playlistId, songTitle);
+      setAddedToPlaylist([...addedToPlaylist, playlistId]);
+      alert(`✅ Song added to playlist successfully!`);
+      setTimeout(() => {
+        setShowAddToPlaylistModal(false);
+        setSelectedSongForPlaylist(null);
+        setAddedToPlaylist([]);
+      }, 1000);
+    } catch (error) {
+      console.error("Error adding to playlist:", error);
+      alert("Failed to add song to playlist");
+    } finally {
+      setIsAddingToPlaylist(false);
+    }
+  };
+
   const getCoverImages = () => {
     const covers = playlistSongs.map(song => song.cover).filter(cover => cover);
     if (playlist.cover_url && playlist.cover_url !== "") {
@@ -136,6 +231,9 @@ export default function PlaylistView({
     }, 5000);
     return () => clearInterval(interval);
   }, [coverImages.length]);
+
+  // Get playlists excluding current one
+  const otherPlaylists = (allPlaylists.length > 0 ? allPlaylists : userPlaylists).filter(p => p.id !== playlist.id);
 
   return (
     <div className="animate-in fade-in duration-300">
@@ -184,6 +282,166 @@ export default function PlaylistView({
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Add to Artist Modal - Admin Only */}
+      <AnimatePresence>
+        {showAddToArtistModal && selectedSongForArtist && isAdmin && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 rounded-2xl border border-purple-500/30 overflow-hidden"
+            >
+              <div className="flex items-center justify-between p-5 border-b border-white/10">
+                <div>
+                  <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+                    Add to Artist
+                  </h2>
+                  <p className="text-sm text-gray-400 mt-1">Song: {selectedSongForArtist.title}</p>
+                  <p className="text-xs text-yellow-400 mt-1">⚠️ Admin only action</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAddToArtistModal(false);
+                    setSelectedSongForArtist(null);
+                  }}
+                  className="p-1 rounded-full hover:bg-white/10 transition"
+                >
+                  <X size={20} className="text-gray-400" />
+                </button>
+              </div>
+              <div className="p-5 max-h-80 overflow-y-auto">
+                {artistsList.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Mic size={48} className="mx-auto text-gray-500 mb-3" />
+                    <p className="text-gray-400">No artists available</p>
+                    <p className="text-xs text-gray-500 mt-1">Create an artist from the sidebar first</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {artistsList.map((artist) => (
+                      <button
+                        key={artist.id}
+                        onClick={() => handleAddToArtist(selectedSongForArtist, artist.name)}
+                        disabled={isAddingToArtist}
+                        className="w-full text-left p-3 rounded-xl hover:bg-white/10 transition flex items-center gap-3 disabled:opacity-50"
+                      >
+                        <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-purple-500/30 to-pink-500/30 flex-shrink-0">
+                          {artist.cover_url ? (
+                            <img src={artist.cover_url} alt={artist.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Mic size={16} className="text-purple-400" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-white">{artist.name}</p>
+                          <p className="text-xs text-gray-400">Set as artist for this song</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="p-5 border-t border-white/10">
+                <button
+                  onClick={() => {
+                    setShowAddToArtistModal(false);
+                    setSelectedSongForArtist(null);
+                  }}
+                  className="w-full py-2 rounded-xl bg-white/10 hover:bg-white/20 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add to Playlist Modal */}
+      <AnimatePresence>
+        {showAddToPlaylistModal && selectedSongForPlaylist && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 rounded-2xl border border-blue-500/30 overflow-hidden"
+            >
+              <div className="flex items-center justify-between p-5 border-b border-white/10">
+                <div>
+                  <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent">
+                    Add to Playlist
+                  </h2>
+                  <p className="text-sm text-gray-400 mt-1">Song: {selectedSongForPlaylist.title}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAddToPlaylistModal(false);
+                    setSelectedSongForPlaylist(null);
+                  }}
+                  className="p-1 rounded-full hover:bg-white/10 transition"
+                >
+                  <X size={20} className="text-gray-400" />
+                </button>
+              </div>
+              <div className="p-5 max-h-80 overflow-y-auto">
+                {otherPlaylists.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Plus size={48} className="mx-auto text-gray-500 mb-3" />
+                    <p className="text-gray-400">No other playlists available</p>
+                    <p className="text-xs text-gray-500 mt-1">Create a playlist from the sidebar</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {otherPlaylists.map((playlistItem) => (
+                      <button
+                        key={playlistItem.id}
+                        onClick={() => handleAddToPlaylist(playlistItem.id, selectedSongForPlaylist.title)}
+                        disabled={isAddingToPlaylist}
+                        className="w-full text-left p-3 rounded-xl hover:bg-white/10 transition flex items-center gap-3 disabled:opacity-50"
+                      >
+                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-gradient-to-br from-blue-500/30 to-purple-600/30 flex-shrink-0">
+                          {playlistItem.cover_url ? (
+                            <img src={playlistItem.cover_url} alt={playlistItem.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Music size={16} className="text-blue-400" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-white">{playlistItem.name}</p>
+                          <p className="text-xs text-gray-400">{playlistItem.songs.length} songs</p>
+                        </div>
+                        {addedToPlaylist.includes(playlistItem.id) && (
+                          <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                            <Check size={12} className="text-white" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="p-5 border-t border-white/10">
+                <button
+                  onClick={() => {
+                    setShowAddToPlaylistModal(false);
+                    setSelectedSongForPlaylist(null);
+                  }}
+                  className="w-full py-2 rounded-xl bg-white/10 hover:bg-white/20 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -400,6 +658,38 @@ export default function PlaylistView({
                     </div>
 
                     <div className="flex items-center gap-1">
+                      {/* Add to Playlist Button */}
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedSongForPlaylist(song);
+                          setShowAddToPlaylistModal(true);
+                        }}
+                        className="w-8 h-8 rounded-full flex items-center justify-center transition md:opacity-0 md:group-hover:opacity-100 hover:bg-green-500/20"
+                        title="Add to Playlist"
+                      >
+                        <Plus size={14} className="text-gray-400 hover:text-green-400" />
+                      </motion.button>
+
+                      {/* Add to Artist Button - Admin Only */}
+                      {isAdmin && (
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedSongForArtist(song);
+                            setShowAddToArtistModal(true);
+                          }}
+                          className="w-8 h-8 rounded-full flex items-center justify-center transition md:opacity-0 md:group-hover:opacity-100 hover:bg-purple-500/20"
+                          title="Add to Artist (Admin only)"
+                        >
+                          <Mic size={14} className="text-gray-400 hover:text-purple-400" />
+                        </motion.button>
+                      )}
+
                       <motion.button
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}

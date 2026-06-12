@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import Sidebar from "@/components/Sidebar";
@@ -15,8 +15,9 @@ import { useSupabasePlaylist } from "@/hooks/useSupabasePlaylist";
 import { useSupabaseLikedSongs } from "@/hooks/useSupabaseLikedSongs";
 import { useSupabaseAuth } from "@/hooks/useSupabaseAuth";
 import { useSupabaseSongs } from "@/hooks/useSupabaseSongs";
+import { useSupabaseArtists } from "@/hooks/useSupabaseArtists";
 
-import { Plus, Play, Disc3, ArrowLeft, Heart, Search as SearchIcon, X, ArrowUp, Upload, Trash2, Edit2, Save, ImageIcon } from "lucide-react";
+import { Plus, Play, Disc3, ArrowLeft, Heart, Search as SearchIcon, X, ArrowUp, Upload, Trash2, Edit2, Save, ImageIcon, Mic, Check, Music } from "lucide-react";
 
 // Type for song
 type Song = {
@@ -194,7 +195,7 @@ const RotatingPlaylistCover = ({ playlist, allSongs }: { playlist: any; allSongs
   );
 };
 
-// Admin Edit Song Modal Component - WITH AUDIO UPLOAD
+// Admin Edit Song Modal Component
 const AdminEditSongModal = ({ 
   isOpen, 
   onClose, 
@@ -439,6 +440,7 @@ export default function Home() {
   const [currentPlaylistSongs, setCurrentPlaylistSongs] = useState<string[] | null>(null);
   const [currentPlaylistId, setCurrentPlaylistId] = useState<string | null>(null);
   const [isPlayingFromLiked, setIsPlayingFromLiked] = useState(false);
+  const [isPlayingFromArtist, setIsPlayingFromArtist] = useState(false);
   
   const [recentlyPlayed, setRecentlyPlayed] = useState<string[]>([]);
   
@@ -469,16 +471,34 @@ export default function Home() {
   const [playlistCoverPreview, setPlaylistCoverPreview] = useState("");
   const playlistCoverInputRef = useRef<HTMLInputElement>(null);
 
+  // Artist states
+  const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
+  const [artistSongs, setArtistSongs] = useState<Song[]>([]);
+  const [showArtistView, setShowArtistView] = useState(false);
+  const [currentArtistQueue, setCurrentArtistQueue] = useState<string[]>([]);
+  
+  // Add to Playlist Modal states
+  const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
+  const [selectedSongForPlaylist, setSelectedSongForPlaylist] = useState<Song | null>(null);
+  const [isAddingToPlaylist, setIsAddingToPlaylist] = useState(false);
+  const [addedToPlaylist, setAddedToPlaylist] = useState<string[]>([]);
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const { songs: supabaseSongs, loading: songsLoading, addSong: addSongToSupabase, deleteSong: deleteSongFromSupabase, refreshSongs, updateSong: updateSongInSupabase, uploadAudioFile, uploadCoverImage } = useSupabaseSongs();
   const { playlists, createPlaylist, addSongToPlaylist, removeSongFromPlaylist, renamePlaylist, deletePlaylist, refreshPlaylists } = useSupabasePlaylist();
   const { likedSongs, toggleLike, isLiked, refreshLikedSongs } = useSupabaseLikedSongs();
   const { user, signOut, signIn, isAdmin, currentUserId, loading: authLoading } = useSupabaseAuth();
+  const { artists, refreshArtists, songBelongsToArtist } = useSupabaseArtists();
 
   const allSongs = supabaseSongs;
 
-  const addUserSong = async (newSong: { title: string; artist: string; cover: string; src: string }) => {
+  // Helper function to get songs for an artist based on name
+  const getSongsForArtistByName = useCallback((artistName: string): Song[] => {
+    return allSongs.filter(song => songBelongsToArtist(song.artist, artistName));
+  }, [allSongs, songBelongsToArtist]);
+
+  const addUserSong = useCallback(async (newSong: { title: string; artist: string; cover: string; src: string }) => {
     try {
       await addSongToSupabase({
         title: newSong.title,
@@ -487,13 +507,14 @@ export default function Home() {
         audio_url: newSong.src,
       });
       alert("✅ Song added successfully!");
+      await refreshSongs();
     } catch (error) {
       console.error("Failed to add song:", error);
       alert("Failed to add song. Please try again.");
     }
-  };
+  }, [addSongToSupabase, refreshSongs]);
 
-  const deleteUserSong = async (songId: string, songTitle: string) => {
+  const deleteUserSong = useCallback(async (songId: string, songTitle: string) => {
     if (!isAdmin) {
       alert("Only admins can delete songs");
       return;
@@ -503,14 +524,15 @@ export default function Home() {
       try {
         await deleteSongFromSupabase(songId);
         alert(`✅ Song "${songTitle}" has been permanently deleted by admin`);
+        await refreshSongs();
       } catch (error) {
         console.error("Failed to delete song:", error);
         alert("Failed to delete song. Please try again.");
       }
     }
-  };
+  }, [isAdmin, deleteSongFromSupabase, refreshSongs]);
 
-  const updateSong = async (songId: string, title: string, artist: string, cover_url: string, audio_url?: string) => {
+  const updateSong = useCallback(async (songId: string, title: string, artist: string, cover_url: string, audio_url?: string) => {
     if (!isAdmin) {
       alert("Only admins can edit songs");
       return;
@@ -528,18 +550,18 @@ export default function Home() {
       console.error("Failed to update song:", error);
       alert("Failed to update song. Please try again.");
     }
-  };
+  }, [isAdmin, updateSongInSupabase, refreshSongs]);
 
-  const handlePlaylistCoverSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePlaylistCoverSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && file.type.startsWith("image/")) {
       setPlaylistCoverFile(file);
       setPlaylistCoverPreview(URL.createObjectURL(file));
     }
-  };
+  }, []);
 
-  const likedSongsList = allSongs.filter(song => likedSongs.includes(song.title));
-  const likedSongTitles = likedSongsList.map(song => song.title);
+  const likedSongsList = useMemo(() => allSongs.filter(song => likedSongs.includes(song.title)), [allSongs, likedSongs]);
+  const likedSongTitles = useMemo(() => likedSongsList.map(song => song.title), [likedSongsList]);
 
   const suggestions = useMemo(() => getSuggestions(search, allSongs, 5), [search, allSongs]);
 
@@ -558,14 +580,14 @@ export default function Home() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const scrollContentToTop = () => {
+  const scrollContentToTop = useCallback(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({
         top: 0,
         behavior: "smooth"
       });
     }
-  };
+  }, []);
 
   useEffect(() => {
     const handleScrollToTop = (e: CustomEvent) => {
@@ -576,7 +598,7 @@ export default function Home() {
 
     window.addEventListener('scrollToTop', handleScrollToTop as EventListener);
     return () => window.removeEventListener('scrollToTop', handleScrollToTop as EventListener);
-  }, []);
+  }, [scrollContentToTop]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -593,18 +615,68 @@ export default function Home() {
       setSelectedPlaylist(e.detail);
       setShowLikedSongs(false);
       setActiveTab("library");
+      setShowArtistView(false);
+      setSelectedArtist(null);
+      setIsPlayingFromArtist(false);
     };
     
     window.addEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
     return () => window.removeEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
   }, []);
 
+  // Handle artist selection
+  const handleSelectArtist = useCallback((artistName: string) => {
+    const songsForArtist = getSongsForArtistByName(artistName);
+    setSelectedArtist(artistName);
+    setArtistSongs(songsForArtist);
+    setCurrentArtistQueue(songsForArtist.map(s => s.title));
+    setShowArtistView(true);
+    setSelectedPlaylist(null);
+    setShowLikedSongs(false);
+    setIsPlayingFromArtist(true);
+    setIsPlayingFromLiked(false);
+    setCurrentPlaylistSongs(null);
+    setCurrentPlaylistId(null);
+    setActiveTab("artists");
+  }, [getSongsForArtistByName]);
+
+  const handleBackFromArtist = useCallback(() => {
+    setShowArtistView(false);
+    setSelectedArtist(null);
+    setArtistSongs([]);
+    setCurrentArtistQueue([]);
+    setIsPlayingFromArtist(false);
+    setActiveTab("artists");
+  }, []);
+
+  // Handle add to playlist from artist view
+  const handleAddToPlaylistFromArtist = useCallback(async (playlistId: string, songTitle: string) => {
+    setIsAddingToPlaylist(true);
+    try {
+      await addSongToPlaylist(playlistId, songTitle);
+      setAddedToPlaylist([...addedToPlaylist, playlistId]);
+      alert(`✅ Song added to playlist successfully!`);
+      setTimeout(() => {
+        setShowAddToPlaylistModal(false);
+        setSelectedSongForPlaylist(null);
+        setAddedToPlaylist([]);
+      }, 1000);
+    } catch (error) {
+      console.error("Error adding to playlist:", error);
+      alert("Failed to add song to playlist");
+    } finally {
+      setIsAddingToPlaylist(false);
+    }
+  }, [addSongToPlaylist, addedToPlaylist]);
+
   let currentQueue: string[] = [];
   
-  if (currentPlaylistSongs && !isPlayingFromLiked) {
+  if (currentPlaylistSongs && !isPlayingFromLiked && !isPlayingFromArtist) {
     currentQueue = currentPlaylistSongs;
   } else if (isPlayingFromLiked) {
     currentQueue = likedSongTitles;
+  } else if (isPlayingFromArtist && currentArtistQueue.length > 0) {
+    currentQueue = currentArtistQueue;
   } else {
     currentQueue = allSongs.map(s => s.title);
   }
@@ -634,60 +706,85 @@ export default function Home() {
     });
   }, [search, allSongs]);
 
-  const playSong = (title: string) => {
+  const playSong = useCallback((title: string) => {
     const index = allSongs.findIndex(s => s.title === title);
     if (index !== -1) {
       setCurrentPlaylistSongs(null);
       setCurrentPlaylistId(null);
       setIsPlayingFromLiked(false);
+      setIsPlayingFromArtist(false);
       setShowLikedSongs(false);
+      setShowArtistView(false);
+      setSelectedArtist(null);
+      setCurrentArtistQueue([]);
       setCurrentIndex(index);
     }
-  };
+  }, [allSongs]);
 
-  const playSongFromPlaylist = (title: string, playlistSongTitles: string[], playlistId: string) => {
+  const playSongFromPlaylist = useCallback((title: string, playlistSongTitles: string[], playlistId: string) => {
     const index = playlistSongTitles.findIndex(t => t === title);
     if (index !== -1) {
       setCurrentPlaylistSongs(playlistSongTitles);
       setCurrentPlaylistId(playlistId);
       setIsPlayingFromLiked(false);
+      setIsPlayingFromArtist(false);
       setShowLikedSongs(false);
+      setShowArtistView(false);
+      setSelectedArtist(null);
+      setCurrentArtistQueue([]);
       setCurrentIndex(index);
     }
-  };
+  }, []);
 
-  const playSongFromLiked = (title: string) => {
+  const playSongFromLiked = useCallback((title: string) => {
     const index = likedSongTitles.findIndex(t => t === title);
     if (index !== -1) {
       setCurrentPlaylistSongs(null);
       setCurrentPlaylistId(null);
       setIsPlayingFromLiked(true);
+      setIsPlayingFromArtist(false);
       setShowLikedSongs(true);
+      setShowArtistView(false);
+      setSelectedArtist(null);
+      setCurrentArtistQueue([]);
       setCurrentIndex(index);
     }
-  };
+  }, [likedSongTitles]);
 
-  const playNext = () => {
+  const playSongFromArtist = useCallback((title: string) => {
+    const index = currentArtistQueue.findIndex(t => t === title);
+    if (index !== -1) {
+      setCurrentPlaylistSongs(null);
+      setCurrentPlaylistId(null);
+      setIsPlayingFromLiked(false);
+      setIsPlayingFromArtist(true);
+      setShowLikedSongs(false);
+      setShowArtistView(true);
+      setCurrentIndex(index);
+    }
+  }, [currentArtistQueue]);
+
+  const playNext = useCallback(() => {
     if (currentIndex < currentQueue.length - 1) {
       setCurrentIndex(currentIndex + 1);
     } else {
       setCurrentIndex(0);
     }
-  };
+  }, [currentIndex, currentQueue.length]);
 
-  const playPrevious = () => {
+  const playPrevious = useCallback(() => {
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
     } else {
       setCurrentIndex(currentQueue.length - 1);
     }
-  };
+  }, [currentIndex, currentQueue.length]);
 
-  const scrollToTop = () => {
+  const scrollToTop = useCallback(() => {
     scrollContentToTop();
-  };
+  }, [scrollContentToTop]);
 
-  const handleCreatePlaylist = async (name: string, coverFile?: File | null) => {
+  const handleCreatePlaylist = useCallback(async (name: string, coverFile?: File | null) => {
     if (name.trim()) {
       await createPlaylist(name.trim(), coverFile);
       setTempPlaylistName("");
@@ -696,58 +793,64 @@ export default function Home() {
       setShowCreateModal(false);
       await refreshPlaylists();
     }
-  };
+  }, [createPlaylist, refreshPlaylists]);
 
-  const handleDeletePlaylist = async (playlistId: string) => {
+  const handleDeletePlaylist = useCallback(async (playlistId: string) => {
     setDeletingPlaylistId(playlistId);
     setTimeout(async () => {
       await deletePlaylist(playlistId);
       setDeletingPlaylistId(null);
     }, 300);
-  };
+  }, [deletePlaylist]);
 
-  const handleLikedSongs = () => {
+  const handleLikedSongs = useCallback(() => {
     setSelectedPlaylist(null);
     setShowLikedSongs(true);
+    setShowArtistView(false);
+    setSelectedArtist(null);
+    setIsPlayingFromArtist(false);
     setActiveTab("library");
-  };
+  }, []);
 
-  const handleLibraryView = () => {
+  const handleLibraryView = useCallback(() => {
     setSelectedPlaylist(null);
     setShowLikedSongs(false);
+    setShowArtistView(false);
+    setSelectedArtist(null);
+    setIsPlayingFromArtist(false);
     setActiveTab("library");
-  };
+  }, []);
 
-  const handleLike = async (e: React.MouseEvent, songTitle: string) => {
+  const handleLike = useCallback(async (e: React.MouseEvent, songTitle: string) => {
     e.stopPropagation();
     await toggleLike(songTitle);
-  };
+  }, [toggleLike]);
 
-  const handleSelectSuggestion = (songTitle: string) => {
+  const handleSelectSuggestion = useCallback((songTitle: string) => {
     playSong(songTitle);
     setShowSuggestions(false);
-  };
+  }, [playSong]);
 
-  const clearSearch = () => {
+  const clearSearch = useCallback(() => {
     setSearch("");
     setShowSuggestions(false);
     if (inputRef.current) {
       inputRef.current.focus();
     }
-  };
+  }, []);
 
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
       setShowSuggestions(true);
     }
-  };
+  }, []);
 
-  const handleSearchFocus = () => {
+  const handleSearchFocus = useCallback(() => {
     if (search.trim()) {
       setShowSuggestions(true);
     }
-  };
+  }, [search]);
 
   if (songsLoading || authLoading) {
     return (
@@ -772,6 +875,7 @@ export default function Home() {
           totalSongs={likedSongs.length}
           onNavigateToLibrary={handleLibraryView}
           onNavigateToLikedSongs={handleLikedSongs}
+          onSelectArtist={handleSelectArtist}
           user={user}
           onSignOut={signOut}
           onSignIn={() => setShowAuthModal(true)}
@@ -791,6 +895,7 @@ export default function Home() {
                 {activeTab === "home" && "Home"}
                 {activeTab === "search" && "Search"}
                 {activeTab === "library" && (showLikedSongs ? "Liked Songs" : "Library")}
+                {activeTab === "artists" && (showArtistView ? `Artist: ${selectedArtist}` : "Artists")}
               </h2>
               {isAdmin && (
                 <div className="md:hidden">
@@ -1142,6 +1247,177 @@ export default function Home() {
             </div>
           )}
 
+          {activeTab === "artists" && (
+            showArtistView ? (
+              <div className="animate-in fade-in duration-300">
+                <div className="flex items-center justify-between mb-8">
+                  <button
+                    onClick={handleBackFromArtist}
+                    className="flex items-center gap-2 text-blue-400 hover:text-blue-300 transition group"
+                  >
+                    <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
+                    Back to Artists
+                  </button>
+                </div>
+
+                <div className="glass rounded-3xl p-6 md:p-8 mb-8">
+                  <div className="flex flex-col md:flex-row gap-6 items-center md:items-end">
+                    <div className="w-48 h-48 rounded-3xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-2xl">
+                      <Mic size={80} className="text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-gray-400 uppercase text-sm tracking-widest">Artist</p>
+                      <h1 className="text-4xl md:text-6xl font-black mt-2">{selectedArtist}</h1>
+                      <p className="text-gray-400 mt-3">{artistSongs.length} songs</p>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {
+                          if (artistSongs.length > 0) {
+                            playSongFromArtist(artistSongs[0].title);
+                          }
+                        }}
+                        className="mt-6 flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 transition font-semibold shadow-lg shadow-purple-500/30"
+                      >
+                        <Play size={18} />
+                        Play All
+                      </motion.button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {artistSongs.length === 0 && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="glass rounded-2xl p-12 text-center text-gray-400"
+                    >
+                      <div className="flex flex-col items-center gap-4">
+                        <Mic size={48} className="text-gray-500" />
+                        <div>
+                          <p className="text-lg">No songs by this artist yet</p>
+                          <p className="text-sm text-gray-500 mt-1">Songs will appear here when added</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                  
+                  {artistSongs.map((song, index) => (
+                    <motion.div
+                      key={song.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.02 }}
+                      className="glass rounded-2xl p-4 cursor-pointer hover:scale-[1.01] transition flex items-center gap-4 group"
+                    >
+                      <div
+                        onClick={() => playSongFromArtist(song.title)}
+                        className="flex items-center gap-4 flex-1"
+                      >
+                        <div className="w-8 text-center text-gray-500 font-semibold">
+                          {index + 1}
+                        </div>
+                        <img src={song.cover_url} alt={song.title} className="w-16 h-16 rounded-2xl object-cover" />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold truncate">{song.title}</h3>
+                          <p className="text-gray-400 text-sm truncate">{song.artist}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {/* Add to Playlist Button in Artist View */}
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedSongForPlaylist(song);
+                            setShowAddToPlaylistModal(true);
+                          }}
+                          className="w-8 h-8 rounded-full flex items-center justify-center transition md:opacity-0 md:group-hover:opacity-100 hover:bg-green-500/20"
+                          title="Add to Playlist"
+                        >
+                          <Plus size={14} className="text-gray-400 hover:text-green-400" />
+                        </motion.button>
+
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            playSongFromArtist(song.title);
+                          }}
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition md:opacity-0 md:group-hover:opacity-100"
+                        >
+                          <Play size={14} />
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleLike(e, song.title);
+                          }}
+                          className="w-8 h-8 rounded-full flex items-center justify-center transition md:opacity-0 md:group-hover:opacity-100"
+                        >
+                          <Heart size={14} className={isLiked(song.title) ? "text-purple-400 fill-purple-400" : "text-gray-400 hover:text-purple-400"} />
+                        </motion.button>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <h3 className="text-2xl font-bold mb-6">All Artists</h3>
+                <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                  {artists.length === 0 ? (
+                    <div className="glass rounded-3xl p-16 text-center col-span-full">
+                      <div className="flex flex-col items-center justify-center gap-4">
+                        <Mic size={64} className="text-gray-500" />
+                        <div>
+                          <p className="text-gray-400 text-lg">No artists yet</p>
+                          <p className="text-sm text-gray-500 mt-1">Artists will appear here when added</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    artists.map((artist) => {
+                      const songCount = getSongsForArtistByName(artist.name).length;
+                      return (
+                        <motion.div
+                          key={artist.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          whileHover={{ scale: 1.02 }}
+                          onClick={() => handleSelectArtist(artist.name)}
+                          className="group cursor-pointer"
+                        >
+                          <div className="relative rounded-xl overflow-hidden aspect-square">
+                            {artist.cover_url ? (
+                              <img
+                                src={artist.cover_url}
+                                alt={artist.name}
+                                className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-300"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-pink-500/30 flex items-center justify-center">
+                                <Mic size={48} className="text-purple-400" />
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                          <h4 className="mt-2 font-semibold text-sm truncate">{artist.name}</h4>
+                          <p className="text-gray-400 text-xs">{songCount} songs</p>
+                        </motion.div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )
+          )}
+
           {activeTab === "library" && (
             showLikedSongs ? (
               <div className="animate-in fade-in duration-300">
@@ -1265,12 +1541,14 @@ export default function Home() {
                       onRenamePlaylist={renamePlaylist}
                       onDeletePlaylist={handleDeletePlaylist}
                       onRemoveSong={removeSongFromPlaylist}
+                      onAddToPlaylist={addSongToPlaylist}
                       likedSongs={likedSongs}
                       onToggleLike={toggleLike}
                       isLiked={isLiked}
                       onReorderSongs={async (playlistId, newOrder) => {
                         console.log("Reorder not implemented yet");
                       }}
+                      allPlaylists={playlists.map(p => ({ id: p.id, name: p.name, songs: p.songs, cover_url: p.cover_url, created_at: p.created_at }))}
                     />
                   );
                 } else {
@@ -1370,6 +1648,88 @@ export default function Home() {
           )}
         </motion.section>
       </main>
+
+      {/* Add to Playlist Modal */}
+      <AnimatePresence>
+        {showAddToPlaylistModal && selectedSongForPlaylist && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 rounded-2xl border border-blue-500/30 overflow-hidden"
+            >
+              <div className="flex items-center justify-between p-5 border-b border-white/10">
+                <div>
+                  <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent">
+                    Add to Playlist
+                  </h2>
+                  <p className="text-sm text-gray-400 mt-1">Song: {selectedSongForPlaylist.title}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAddToPlaylistModal(false);
+                    setSelectedSongForPlaylist(null);
+                  }}
+                  className="p-1 rounded-full hover:bg-white/10 transition"
+                >
+                  <X size={20} className="text-gray-400" />
+                </button>
+              </div>
+              <div className="p-5 max-h-80 overflow-y-auto">
+                {playlists.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Plus size={48} className="mx-auto text-gray-500 mb-3" />
+                    <p className="text-gray-400">No playlists available</p>
+                    <p className="text-xs text-gray-500 mt-1">Create a playlist from the sidebar</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {playlists.map((playlistItem) => (
+                      <button
+                        key={playlistItem.id}
+                        onClick={() => handleAddToPlaylistFromArtist(playlistItem.id, selectedSongForPlaylist.title)}
+                        disabled={isAddingToPlaylist}
+                        className="w-full text-left p-3 rounded-xl hover:bg-white/10 transition flex items-center gap-3 disabled:opacity-50"
+                      >
+                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-gradient-to-br from-blue-500/30 to-purple-600/30 flex-shrink-0">
+                          {playlistItem.cover_url ? (
+                            <img src={playlistItem.cover_url} alt={playlistItem.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Music size={16} className="text-blue-400" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-white">{playlistItem.name}</p>
+                          <p className="text-xs text-gray-400">{playlistItem.songs.length} songs</p>
+                        </div>
+                        {addedToPlaylist.includes(playlistItem.id) && (
+                          <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                            <Check size={12} className="text-white" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="p-5 border-t border-white/10">
+                <button
+                  onClick={() => {
+                    setShowAddToPlaylistModal(false);
+                    setSelectedSongForPlaylist(null);
+                  }}
+                  className="w-full py-2 rounded-xl bg-white/10 hover:bg-white/20 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {showModal && (
         <PlaylistModal
@@ -1535,6 +1895,7 @@ export default function Home() {
               justifyContent: "center",
               cursor: "pointer",
             }}
+            aria-label="Back to top"
           >
             <div 
               style={{

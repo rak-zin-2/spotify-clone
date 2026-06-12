@@ -1,7 +1,7 @@
 // hooks/useSupabasePlaylist.ts
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { useSupabaseAuth } from './useSupabaseAuth';
 
@@ -19,7 +19,25 @@ export function useSupabasePlaylist() {
   const [loading, setLoading] = useState(true);
   const { currentUserId } = useSupabaseAuth();
 
-  const fetchPlaylists = async () => {
+  // Function to log user actions
+  const logUserAction = useCallback(async (actionType: string, details: any) => {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user) {
+        await supabase.from('admin_actions').insert({
+          user_id: userData.user.id,
+          user_email: userData.user.email,
+          user_name: userData.user.user_metadata?.username || userData.user.email?.split('@')[0],
+          action_type: actionType,
+          action_details: details,
+        });
+      }
+    } catch (error) {
+      console.error("Error logging action:", error);
+    }
+  }, []);
+
+  const fetchPlaylists = useCallback(async () => {
     if (!currentUserId) {
       setPlaylists([]);
       setLoading(false);
@@ -73,9 +91,9 @@ export function useSupabasePlaylist() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUserId]);
 
-  const uploadPlaylistCover = async (file: File, playlistId: string): Promise<string | null> => {
+  const uploadPlaylistCover = useCallback(async (file: File, playlistId: string): Promise<string | null> => {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `playlists/${playlistId}/cover.${fileExt}`;
@@ -95,9 +113,9 @@ export function useSupabasePlaylist() {
       console.error("Error uploading cover:", error);
       return null;
     }
-  };
+  }, []);
 
-  const createPlaylist = async (name: string, coverFile?: File | null) => {
+  const createPlaylist = useCallback(async (name: string, coverFile?: File | null) => {
     if (!currentUserId) return null;
     
     const { data, error } = await supabase
@@ -107,6 +125,12 @@ export function useSupabasePlaylist() {
       .single();
     
     if (error) throw error;
+    
+    // Log the action
+    await logUserAction('create_playlist', {
+      playlist_name: name,
+      playlist_id: data.id
+    });
     
     if (coverFile && data) {
       const coverUrl = await uploadPlaylistCover(coverFile, data.id);
@@ -121,9 +145,9 @@ export function useSupabasePlaylist() {
     
     await fetchPlaylists();
     return data;
-  };
+  }, [currentUserId, logUserAction, uploadPlaylistCover, fetchPlaylists]);
 
-  const updatePlaylist = async (playlistId: string, updates: { name?: string; cover_url?: string }) => {
+  const updatePlaylist = useCallback(async (playlistId: string, updates: { name?: string; cover_url?: string }) => {
     const { error } = await supabase
       .from('playlists')
       .update(updates)
@@ -131,9 +155,9 @@ export function useSupabasePlaylist() {
     
     if (error) throw error;
     await fetchPlaylists();
-  };
+  }, [fetchPlaylists]);
 
-  const addSongToPlaylist = async (playlistId: string, songTitle: string) => {
+  const addSongToPlaylist = useCallback(async (playlistId: string, songTitle: string) => {
     const { data: songData } = await supabase
       .from('songs')
       .select('id, cover_url')
@@ -170,9 +194,9 @@ export function useSupabasePlaylist() {
     }
     
     await fetchPlaylists();
-  };
+  }, [fetchPlaylists]);
 
-  const removeSongFromPlaylist = async (playlistId: string, songTitle: string) => {
+  const removeSongFromPlaylist = useCallback(async (playlistId: string, songTitle: string) => {
     const { data: songData } = await supabase
       .from('songs')
       .select('id')
@@ -189,9 +213,9 @@ export function useSupabasePlaylist() {
     
     if (error) throw error;
     await fetchPlaylists();
-  };
+  }, [fetchPlaylists]);
 
-  const renamePlaylist = async (playlistId: string, newName: string) => {
+  const renamePlaylist = useCallback(async (playlistId: string, newName: string) => {
     const { error } = await supabase
       .from('playlists')
       .update({ name: newName })
@@ -199,9 +223,9 @@ export function useSupabasePlaylist() {
     
     if (error) throw error;
     await fetchPlaylists();
-  };
+  }, [fetchPlaylists]);
 
-  const deletePlaylist = async (playlistId: string) => {
+  const deletePlaylist = useCallback(async (playlistId: string) => {
     const { error } = await supabase
       .from('playlists')
       .delete()
@@ -209,11 +233,11 @@ export function useSupabasePlaylist() {
     
     if (error) throw error;
     await fetchPlaylists();
-  };
+  }, [fetchPlaylists]);
 
   useEffect(() => {
     fetchPlaylists();
-  }, [currentUserId]);
+  }, [fetchPlaylists]);
 
   return {
     playlists,

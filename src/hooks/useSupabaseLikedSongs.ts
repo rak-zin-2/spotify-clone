@@ -1,7 +1,7 @@
 // hooks/useSupabaseLikedSongs.ts
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { useSupabaseAuth } from './useSupabaseAuth';
 
@@ -10,7 +10,25 @@ export function useSupabaseLikedSongs() {
   const [loading, setLoading] = useState(true);
   const { currentUserId } = useSupabaseAuth();
 
-  const fetchLikedSongs = async () => {
+  // Function to log user actions
+  const logUserAction = useCallback(async (actionType: string, details: any) => {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user) {
+        await supabase.from('admin_actions').insert({
+          user_id: userData.user.id,
+          user_email: userData.user.email,
+          user_name: userData.user.user_metadata?.username || userData.user.email?.split('@')[0],
+          action_type: actionType,
+          action_details: details,
+        });
+      }
+    } catch (error) {
+      console.error("Error logging action:", error);
+    }
+  }, []);
+
+  const fetchLikedSongs = useCallback(async () => {
     if (!currentUserId) {
       setLikedSongTitles([]);
       setLoading(false);
@@ -46,9 +64,9 @@ export function useSupabaseLikedSongs() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUserId]);
 
-  const toggleLike = async (songTitle: string) => {
+  const toggleLike = useCallback(async (songTitle: string) => {
     if (!currentUserId) return;
 
     // Find song ID
@@ -79,15 +97,20 @@ export function useSupabaseLikedSongs() {
       
       if (!error) {
         setLikedSongTitles(prev => [...prev, songTitle]);
+        // Log the like action
+        await logUserAction('like_song', {
+          song_title: songTitle,
+          song_id: songData.id
+        });
       }
     }
-  };
+  }, [currentUserId, likedSongTitles, logUserAction]);
 
-  const isLiked = (songTitle: string) => likedSongTitles.includes(songTitle);
+  const isLiked = useCallback((songTitle: string) => likedSongTitles.includes(songTitle), [likedSongTitles]);
 
   useEffect(() => {
     fetchLikedSongs();
-  }, [currentUserId]);
+  }, [fetchLikedSongs]);
 
   return { 
     likedSongs: likedSongTitles, 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Shuffle,
@@ -46,6 +46,8 @@ export default function MusicPlayer({
   const [progress, setProgress] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [previousVolume, setPreviousVolume] = useState(0.8);
+  const [isLoading, setIsLoading] = useState(false);
+  const [audioLoaded, setAudioLoaded] = useState(false);
   
   // Shuffle state
   const [shuffledQueue, setShuffledQueue] = useState<string[]>([]);
@@ -92,8 +94,7 @@ export default function MusicPlayer({
     }
   }, [currentIndex, currentQueue, isShuffled, shuffledQueue, shuffledIndex]);
 
-  // Handle next song
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     if (repeat === "one") {
       // Replay current song
       if (audioRef.current) {
@@ -137,10 +138,9 @@ export default function MusicPlayer({
       // Normal mode - use onNext from page.tsx (handles infinite loop)
       onNext();
     }
-  };
+  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext]);
 
-  // Handle previous song
-  const handlePrev = () => {
+  const handlePrev = useCallback(() => {
     if (repeat === "one") {
       // Restart current song
       if (audioRef.current) {
@@ -181,10 +181,10 @@ export default function MusicPlayer({
       // Normal mode - use onPrev from page.tsx (handles infinite loop)
       onPrev();
     }
-  };
+  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
 
   // Handle song end
-  const handleSongEnd = () => {
+  const handleSongEnd = useCallback(() => {
     if (repeat === "one") {
       // Replay the same song
       if (audioRef.current) {
@@ -195,22 +195,67 @@ export default function MusicPlayer({
     } else {
       handleNext();
     }
-  };
+  }, [repeat, handleNext]);
 
   // Load new song when currentSong changes
   useEffect(() => {
-    if (!audioRef.current) return;
+    if (!audioRef.current || !currentSong?.src) return;
     
-    const currentAudioSrc = audioRef.current.src;
-    const newSongSrc = currentSong.src;
+    const audio = audioRef.current;
     
-    if (currentAudioSrc !== newSongSrc) {
-      audioRef.current.src = newSongSrc;
-      audioRef.current.load();
-      audioRef.current.play().catch(() => {});
-      setPlaying(true);
+    // Reset states
+    setAudioLoaded(false);
+    setIsLoading(true);
+    setProgress(0);
+    
+    // Check if we need to load a new song
+    if (audio.src !== currentSong.src) {
+      // Set new source
+      audio.src = currentSong.src;
+      audio.load();
     }
-  }, [currentSong]);
+    
+    // Set up event handlers for this song
+    const handleCanPlayThrough = () => {
+      setAudioLoaded(true);
+      setIsLoading(false);
+      // Auto-play if we were playing before
+      if (playing || !audio.paused) {
+        audio.play()
+          .then(() => setPlaying(true))
+          .catch((err) => {
+            console.error("Auto-play failed:", err);
+            setPlaying(false);
+          });
+      }
+    };
+    
+    const handleError = (e: ErrorEvent) => {
+      console.error("Audio loading error for:", currentSong.title, e);
+      setIsLoading(false);
+      setAudioLoaded(false);
+    };
+    
+    const handlePlaying = () => {
+      setPlaying(true);
+    };
+    
+    const handlePause = () => {
+      setPlaying(false);
+    };
+    
+    audio.addEventListener('canplaythrough', handleCanPlayThrough);
+    audio.addEventListener('error', handleError);
+    audio.addEventListener('playing', handlePlaying);
+    audio.addEventListener('pause', handlePause);
+    
+    return () => {
+      audio.removeEventListener('canplaythrough', handleCanPlayThrough);
+      audio.removeEventListener('error', handleError);
+      audio.removeEventListener('playing', handlePlaying);
+      audio.removeEventListener('pause', handlePause);
+    };
+  }, [currentSong, playing]);
 
   // Update volume when changed
   useEffect(() => {
@@ -224,7 +269,7 @@ export default function MusicPlayer({
     if (!audio) return;
 
     const updateProgress = () => {
-      if (audio.duration && isFinite(audio.duration)) {
+      if (audio.duration && isFinite(audio.duration) && !isNaN(audio.duration)) {
         setProgress((audio.currentTime / audio.duration) * 100 || 0);
       } else {
         setProgress(0);
@@ -239,33 +284,39 @@ export default function MusicPlayer({
     };
   }, []);
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     if (!audioRef.current) return;
+    if (!audioLoaded && isLoading) return;
+    
     if (playing) {
       audioRef.current.pause();
       setPlaying(false);
     } else {
-      audioRef.current.play().catch(() => {});
-      setPlaying(true);
+      audioRef.current.play()
+        .then(() => setPlaying(true))
+        .catch((err) => {
+          console.error("Play failed:", err);
+          setPlaying(false);
+        });
     }
-  };
+  }, [playing, audioLoaded, isLoading]);
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     if (volume > 0) {
       setPreviousVolume(volume);
       setVolume(0);
     } else {
       setVolume(previousVolume);
     }
-  };
+  }, [volume, previousVolume]);
 
-  const toggleRepeat = () => {
+  const toggleRepeat = useCallback(() => {
     setRepeat(prev => {
       if (prev === "off") return "all";
       if (prev === "all") return "one";
       return "off";
     });
-  };
+  }, []);
 
   const formatTime = (time: number) => {
     if (!time || isNaN(time) || !isFinite(time)) return "0:00";
@@ -274,7 +325,7 @@ export default function MusicPlayer({
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   };
 
-  const seekAudio = (clientX: number, rect: DOMRect) => {
+  const seekAudio = useCallback((clientX: number, rect: DOMRect) => {
     if (!audioRef.current) return;
     const duration = audioRef.current.duration;
     if (!duration || isNaN(duration) || !isFinite(duration)) return;
@@ -284,7 +335,7 @@ export default function MusicPlayer({
     if (isFinite(newTime) && !isNaN(newTime)) {
       audioRef.current.currentTime = newTime;
     }
-  };
+  }, []);
 
   const currentTime = audioRef.current?.currentTime || 0;
   const duration = audioRef.current?.duration || 0;
@@ -297,23 +348,24 @@ export default function MusicPlayer({
     return <Repeat size={16} className="md:w-4 md:h-4" />;
   };
 
-  // Add CSS animation keyframes to the document
+  // Add CSS animation keyframes to the document only once
   useEffect(() => {
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes spin {
-        from {
-          transform: rotate(0deg);
+    const styleId = 'music-player-animations';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
         }
-        to {
-          transform: rotate(360deg);
-        }
-      }
-    `;
-    document.head.appendChild(style);
-    return () => {
-      document.head.removeChild(style);
-    };
+      `;
+      document.head.appendChild(style);
+    }
   }, []);
 
   return (
@@ -357,12 +409,13 @@ export default function MusicPlayer({
 
         {/* Main layout - grid ensures perfect centering */}
         <div className="grid grid-cols-3 items-center gap-2 md:gap-4">
-          {/* LEFT - Rotating Photo + Song Info - FIXED VERSION */}
+          {/* LEFT - Rotating Photo + Song Info */}
           <div className="flex items-center gap-2 md:gap-3 justify-start min-w-0">
             <div
               className="flex-shrink-0"
               style={{
-                animation: playing ? "spin 4s linear infinite" : "none"
+                animation: playing && audioLoaded && !isLoading ? "spin 4s linear infinite" : "none",
+                willChange: "transform"
               }}
             >
               <div className="w-8 h-8 md:w-10 md:h-10 rounded-full overflow-hidden shadow-lg ring-2 ring-blue-500/30">
@@ -379,7 +432,7 @@ export default function MusicPlayer({
             </div>
           </div>
 
-          {/* CENTER - Controls - Play button clearly a circle */}
+          {/* CENTER - Controls */}
           <div className="flex items-center justify-center gap-2 md:gap-4">
             <motion.button
               whileHover={{ scale: 1.1 }}
@@ -388,6 +441,7 @@ export default function MusicPlayer({
               className={`p-1.5 md:p-2 rounded-full transition-all duration-200 ${
                 shuffle ? "text-blue-400 bg-blue-500/20" : "text-white/60 hover:text-white hover:bg-white/10"
               }`}
+              aria-label="Shuffle"
             >
               <Shuffle size={14} className="md:w-4 md:h-4" />
             </motion.button>
@@ -397,6 +451,7 @@ export default function MusicPlayer({
               whileTap={{ scale: 0.95 }}
               onClick={handlePrev}
               className="p-1.5 md:p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-all"
+              aria-label="Previous"
             >
               <SkipBack size={16} className="md:w-5 md:h-5" />
             </motion.button>
@@ -405,12 +460,16 @@ export default function MusicPlayer({
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              animate={{ scale: playing ? [1, 1.05, 1] : 1 }}
-              transition={{ duration: 0.3, repeat: playing ? Infinity : 0, repeatDelay: 2 }}
+              animate={{ scale: playing && !isLoading ? [1, 1.05, 1] : 1 }}
+              transition={{ duration: 0.3, repeat: playing && !isLoading ? Infinity : 0, repeatDelay: 2 }}
               onClick={togglePlay}
-              className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition-all duration-200 flex items-center justify-center shadow-lg shadow-blue-500/30 flex-shrink-0"
+              disabled={isLoading}
+              className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition-all duration-200 flex items-center justify-center shadow-lg shadow-blue-500/30 flex-shrink-0 disabled:opacity-50"
+              aria-label={playing ? "Pause" : "Play"}
             >
-              {playing ? (
+              {isLoading ? (
+                <div className="w-4 h-4 md:w-5 md:h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : playing ? (
                 <Pause size={16} className="md:w-5 md:h-5 text-white" />
               ) : (
                 <Play size={16} className="ml-0.5 md:w-5 md:h-5 text-white" />
@@ -422,6 +481,7 @@ export default function MusicPlayer({
               whileTap={{ scale: 0.95 }}
               onClick={handleNext}
               className="p-1.5 md:p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-all"
+              aria-label="Next"
             >
               <SkipForward size={16} className="md:w-5 md:h-5" />
             </motion.button>
@@ -433,6 +493,7 @@ export default function MusicPlayer({
               className={`p-1.5 md:p-2 rounded-full transition-all duration-200 relative ${
                 repeat !== "off" ? "text-blue-400 bg-blue-500/20" : "text-white/60 hover:text-white hover:bg-white/10"
               }`}
+              aria-label="Repeat"
             >
               {getRepeatIcon()}
               {repeat === "one" && (
@@ -448,6 +509,7 @@ export default function MusicPlayer({
               whileTap={{ scale: 0.95 }}
               onClick={toggleMute}
               className="p-1.5 md:p-2 rounded-full hover:bg-white/10 transition"
+              aria-label="Volume"
             >
               {volume === 0 ? <VolumeX size={14} className="text-blue-400" /> : <Volume2 size={14} className="text-blue-400" />}
             </motion.button>
@@ -459,6 +521,7 @@ export default function MusicPlayer({
               value={volume}
               onChange={(e) => setVolume(Number(e.target.value))}
               className="w-20 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
+              aria-label="Volume slider"
             />
           </div>
 
@@ -474,7 +537,6 @@ export default function MusicPlayer({
 
         <audio
           ref={audioRef}
-          src={currentSong.src}
           onEnded={handleSongEnd}
           onLoadedMetadata={() => {
             setProgress(0);
