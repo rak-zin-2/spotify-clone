@@ -436,25 +436,35 @@ const AdminEditSongModal = ({
 };
 
 export default function Home() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [currentPlaylistSongs, setCurrentPlaylistSongs] = useState<string[] | null>(null);
-  const [currentPlaylistId, setCurrentPlaylistId] = useState<string | null>(null);
-  const [isPlayingFromLiked, setIsPlayingFromLiked] = useState(false);
-  const [isPlayingFromArtist, setIsPlayingFromArtist] = useState(false);
+  // ========== PERSISTENT PLAYING STATE - NEVER RESET ON NAVIGATION ==========
+  const [playingSongTitle, setPlayingSongTitle] = useState<string | null>(null);
+  const [playingQueue, setPlayingQueue] = useState<string[]>([]);
+  const [playingIndex, setPlayingIndex] = useState(0);
+  const [playingContextType, setPlayingContextType] = useState<'playlist' | 'liked' | 'artist' | 'all'>('all');
   
-  const [recentlyPlayed, setRecentlyPlayed] = useState<string[]>([]);
-  
-  const [search, setSearch] = useState("");
+  // ========== UI NAVIGATION STATE (DOES NOT AFFECT PLAYBACK) ==========
   const [activeTab, setActiveTab] = useState("home");
+  const [search, setSearch] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [selectedSong, setSelectedSong] = useState("");
-  const [showModal, setShowModal] = useState(false);
-
   const [selectedPlaylist, setSelectedPlaylist] = useState<string | null>(null);
   const [showLikedSongs, setShowLikedSongs] = useState(false);
+  const [showArtistView, setShowArtistView] = useState(false);
+  const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
+  const [artistSongs, setArtistSongs] = useState<Song[]>([]);
+  
+  // UI display queues (just for showing, not controlling playback)
+  const [displayPlaylistSongs, setDisplayPlaylistSongs] = useState<string[] | null>(null);
+  const [displayArtistQueue, setDisplayArtistQueue] = useState<string[]>([]);
+  const [displayIsPlayingFromLiked, setDisplayIsPlayingFromLiked] = useState(false);
+  const [displayIsPlayingFromArtist, setDisplayIsPlayingFromArtist] = useState(false);
+  
+  const [recentlyPlayed, setRecentlyPlayed] = useState<string[]>([]);
+  
+  const [selectedSong, setSelectedSong] = useState("");
+  const [showModal, setShowModal] = useState(false);
   
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [tempPlaylistName, setTempPlaylistName] = useState("");
@@ -470,12 +480,6 @@ export default function Home() {
   const [playlistCoverFile, setPlaylistCoverFile] = useState<File | null>(null);
   const [playlistCoverPreview, setPlaylistCoverPreview] = useState("");
   const playlistCoverInputRef = useRef<HTMLInputElement>(null);
-
-  // Artist states
-  const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
-  const [artistSongs, setArtistSongs] = useState<Song[]>([]);
-  const [showArtistView, setShowArtistView] = useState(false);
-  const [currentArtistQueue, setCurrentArtistQueue] = useState<string[]>([]);
   
   // Add to Playlist Modal states
   const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
@@ -485,6 +489,7 @@ export default function Home() {
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Hooks
   const { songs: supabaseSongs, loading: songsLoading, addSong: addSongToSupabase, deleteSong: deleteSongFromSupabase, refreshSongs, updateSong: updateSongInSupabase, uploadAudioFile, uploadCoverImage } = useSupabaseSongs();
   const { playlists, createPlaylist, addSongToPlaylist, removeSongFromPlaylist, renamePlaylist, deletePlaylist, refreshPlaylists } = useSupabasePlaylist();
   const { likedSongs, toggleLike, isLiked, refreshLikedSongs } = useSupabaseLikedSongs();
@@ -493,11 +498,206 @@ export default function Home() {
 
   const allSongs = supabaseSongs;
 
-  // Helper function to get songs for an artist based on name
+  // Helper functions
   const getSongsForArtistByName = useCallback((artistName: string): Song[] => {
     return allSongs.filter(song => songBelongsToArtist(song.artist, artistName));
   }, [allSongs, songBelongsToArtist]);
 
+  const likedSongsList = useMemo(() => allSongs.filter(song => likedSongs.includes(song.title)), [allSongs, likedSongs]);
+  const likedSongTitles = useMemo(() => likedSongsList.map(song => song.title), [likedSongsList]);
+
+  // Get current song object from playing state - uses title as key to prevent unnecessary re-renders
+  const currentSongObject = useMemo(() => {
+    if (!playingSongTitle) return allSongs[0] || null;
+    return allSongs.find(s => s.title === playingSongTitle) || allSongs[0] || null;
+  }, [playingSongTitle, allSongs]);
+
+  // Get the actual queue for playback
+  const getActualPlayingQueue = useCallback((): string[] => {
+    if (playingQueue.length > 0) return playingQueue;
+    return allSongs.map(s => s.title);
+  }, [playingQueue, allSongs]);
+
+  // Play next/previous using persistent state
+  const playNext = useCallback(() => {
+    const currentQueue = getActualPlayingQueue();
+    if (playingIndex < currentQueue.length - 1) {
+      const newIndex = playingIndex + 1;
+      setPlayingIndex(newIndex);
+      setPlayingSongTitle(currentQueue[newIndex]);
+    } else if (playingContextType === 'all') {
+      setPlayingIndex(0);
+      setPlayingSongTitle(currentQueue[0]);
+    } else {
+      setPlayingIndex(0);
+      setPlayingSongTitle(currentQueue[0]);
+    }
+  }, [playingIndex, playingContextType, getActualPlayingQueue]);
+
+  const playPrevious = useCallback(() => {
+    const currentQueue = getActualPlayingQueue();
+    if (playingIndex > 0) {
+      const newIndex = playingIndex - 1;
+      setPlayingIndex(newIndex);
+      setPlayingSongTitle(currentQueue[newIndex]);
+    } else if (playingContextType === 'all') {
+      const newIndex = currentQueue.length - 1;
+      setPlayingIndex(newIndex);
+      setPlayingSongTitle(currentQueue[newIndex]);
+    } else {
+      const newIndex = currentQueue.length - 1;
+      setPlayingIndex(newIndex);
+      setPlayingSongTitle(currentQueue[newIndex]);
+    }
+  }, [playingIndex, playingContextType, getActualPlayingQueue]);
+
+  // Play song - THIS IS THE ONLY PLACE THAT CHANGES PLAYBACK
+  const playSong = useCallback((title: string, contextType: 'playlist' | 'liked' | 'artist' | 'all' = 'all', contextId?: string, contextSongs?: string[]) => {
+    const songsToUse = contextSongs || (contextType === 'liked' ? likedSongTitles : allSongs.map(s => s.title));
+    const index = songsToUse.findIndex(s => s === title);
+    
+    if (index !== -1) {
+      // Update persistent playing state
+      setPlayingContextType(contextType);
+      setPlayingQueue(songsToUse);
+      setPlayingIndex(index);
+      setPlayingSongTitle(title);
+      
+      // Also update UI display state (for visual feedback only)
+      if (contextType === 'playlist') {
+        setDisplayPlaylistSongs(songsToUse);
+        setDisplayIsPlayingFromLiked(false);
+        setDisplayIsPlayingFromArtist(false);
+        setDisplayArtistQueue([]);
+        setSelectedPlaylist(contextId || null);
+        setShowLikedSongs(false);
+        setShowArtistView(false);
+      } else if (contextType === 'liked') {
+        setDisplayPlaylistSongs(null);
+        setDisplayIsPlayingFromLiked(true);
+        setDisplayIsPlayingFromArtist(false);
+        setDisplayArtistQueue([]);
+        setShowLikedSongs(true);
+        setSelectedPlaylist(null);
+        setShowArtistView(false);
+      } else if (contextType === 'artist') {
+        setDisplayPlaylistSongs(null);
+        setDisplayIsPlayingFromLiked(false);
+        setDisplayIsPlayingFromArtist(true);
+        setDisplayArtistQueue(songsToUse);
+        setShowArtistView(true);
+        setSelectedPlaylist(null);
+        setShowLikedSongs(false);
+      } else {
+        setDisplayPlaylistSongs(null);
+        setDisplayIsPlayingFromLiked(false);
+        setDisplayIsPlayingFromArtist(false);
+        setDisplayArtistQueue([]);
+      }
+    }
+  }, [allSongs, likedSongTitles]);
+
+  // Play song from playlist
+  const playSongFromPlaylist = useCallback((title: string, playlistSongTitles: string[], playlistId: string) => {
+    const index = playlistSongTitles.findIndex(t => t === title);
+    if (index !== -1) {
+      setPlayingContextType('playlist');
+      setPlayingQueue(playlistSongTitles);
+      setPlayingIndex(index);
+      setPlayingSongTitle(title);
+      
+      setDisplayPlaylistSongs(playlistSongTitles);
+      setDisplayIsPlayingFromLiked(false);
+      setDisplayIsPlayingFromArtist(false);
+      setSelectedPlaylist(playlistId);
+      setShowLikedSongs(false);
+      setShowArtistView(false);
+    }
+  }, []);
+
+  // Play song from liked songs
+  const playSongFromLiked = useCallback((title: string) => {
+    const index = likedSongTitles.findIndex(t => t === title);
+    if (index !== -1) {
+      setPlayingContextType('liked');
+      setPlayingQueue(likedSongTitles);
+      setPlayingIndex(index);
+      setPlayingSongTitle(title);
+      
+      setDisplayPlaylistSongs(null);
+      setDisplayIsPlayingFromLiked(true);
+      setDisplayIsPlayingFromArtist(false);
+      setShowLikedSongs(true);
+      setSelectedPlaylist(null);
+      setShowArtistView(false);
+    }
+  }, [likedSongTitles]);
+
+  // Play song from artist
+  const playSongFromArtist = useCallback((title: string) => {
+    const songsForArtist = getSongsForArtistByName(selectedArtist || '');
+    const artistSongTitles = songsForArtist.map(s => s.title);
+    const index = artistSongTitles.findIndex(t => t === title);
+    if (index !== -1) {
+      setPlayingContextType('artist');
+      setPlayingQueue(artistSongTitles);
+      setPlayingIndex(index);
+      setPlayingSongTitle(title);
+      
+      setDisplayPlaylistSongs(null);
+      setDisplayIsPlayingFromLiked(false);
+      setDisplayIsPlayingFromArtist(true);
+      setDisplayArtistQueue(artistSongTitles);
+      setShowArtistView(true);
+      setSelectedPlaylist(null);
+      setShowLikedSongs(false);
+    }
+  }, [selectedArtist, getSongsForArtistByName]);
+
+  // Navigation handlers - THESE DO NOT RESET PLAYBACK
+  const handleSelectArtist = useCallback((artistName: string) => {
+    const songsForArtist = getSongsForArtistByName(artistName);
+    setSelectedArtist(artistName);
+    setArtistSongs(songsForArtist);
+    setShowArtistView(true);
+    setSelectedPlaylist(null);
+    setShowLikedSongs(false);
+    setActiveTab("artists");
+    // NEVER reset playing state here
+  }, [getSongsForArtistByName]);
+
+  const handleBackFromArtist = useCallback(() => {
+    setShowArtistView(false);
+    setSelectedArtist(null);
+    setArtistSongs([]);
+    setActiveTab("artists");
+    // NEVER reset playing state here
+  }, []);
+
+  const handleLikedSongs = useCallback(() => {
+    setSelectedPlaylist(null);
+    setShowLikedSongs(true);
+    setShowArtistView(false);
+    setSelectedArtist(null);
+    setActiveTab("library");
+    // NEVER reset playing state here
+  }, []);
+
+  const handleLibraryView = useCallback(() => {
+    setSelectedPlaylist(null);
+    setShowLikedSongs(false);
+    setShowArtistView(false);
+    setSelectedArtist(null);
+    setActiveTab("library");
+    // NEVER reset playing state here
+  }, []);
+
+  const handleNavigation = useCallback((tabId: string) => {
+    setActiveTab(tabId);
+    // NEVER reset playing state here - this is crucial!
+  }, []);
+
+  // Other handlers
   const addUserSong = useCallback(async (newSong: { title: string; artist: string; cover: string; src: string }) => {
     try {
       await addSongToSupabase({
@@ -560,230 +760,6 @@ export default function Home() {
     }
   }, []);
 
-  const likedSongsList = useMemo(() => allSongs.filter(song => likedSongs.includes(song.title)), [allSongs, likedSongs]);
-  const likedSongTitles = useMemo(() => likedSongsList.map(song => song.title), [likedSongsList]);
-
-  const suggestions = useMemo(() => getSuggestions(search, allSongs, 5), [search, allSongs]);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      if (window.scrollY > 200) {
-        setShowBackToTop(true);
-      } else {
-        setShowBackToTop(false);
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll);
-    handleScroll();
-    
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  const scrollContentToTop = useCallback(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo({
-        top: 0,
-        behavior: "smooth"
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleScrollToTop = (e: CustomEvent) => {
-      if (e.detail === "home" || e.detail === "search") {
-        setTimeout(() => scrollContentToTop(), 100);
-      }
-    };
-
-    window.addEventListener('scrollToTop', handleScrollToTop as EventListener);
-    return () => window.removeEventListener('scrollToTop', handleScrollToTop as EventListener);
-  }, [scrollContentToTop]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    const handleSelectPlaylist = (e: CustomEvent) => {
-      setSelectedPlaylist(e.detail);
-      setShowLikedSongs(false);
-      setActiveTab("library");
-      setShowArtistView(false);
-      setSelectedArtist(null);
-      setIsPlayingFromArtist(false);
-    };
-    
-    window.addEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
-    return () => window.removeEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
-  }, []);
-
-  // Handle artist selection
-  const handleSelectArtist = useCallback((artistName: string) => {
-    const songsForArtist = getSongsForArtistByName(artistName);
-    setSelectedArtist(artistName);
-    setArtistSongs(songsForArtist);
-    setCurrentArtistQueue(songsForArtist.map(s => s.title));
-    setShowArtistView(true);
-    setSelectedPlaylist(null);
-    setShowLikedSongs(false);
-    setIsPlayingFromArtist(true);
-    setIsPlayingFromLiked(false);
-    setCurrentPlaylistSongs(null);
-    setCurrentPlaylistId(null);
-    setActiveTab("artists");
-  }, [getSongsForArtistByName]);
-
-  const handleBackFromArtist = useCallback(() => {
-    setShowArtistView(false);
-    setSelectedArtist(null);
-    setArtistSongs([]);
-    setCurrentArtistQueue([]);
-    setIsPlayingFromArtist(false);
-    setActiveTab("artists");
-  }, []);
-
-  // Handle add to playlist from artist view
-  const handleAddToPlaylistFromArtist = useCallback(async (playlistId: string, songTitle: string) => {
-    setIsAddingToPlaylist(true);
-    try {
-      await addSongToPlaylist(playlistId, songTitle);
-      setAddedToPlaylist([...addedToPlaylist, playlistId]);
-      alert(`✅ Song added to playlist successfully!`);
-      setTimeout(() => {
-        setShowAddToPlaylistModal(false);
-        setSelectedSongForPlaylist(null);
-        setAddedToPlaylist([]);
-      }, 1000);
-    } catch (error) {
-      console.error("Error adding to playlist:", error);
-      alert("Failed to add song to playlist");
-    } finally {
-      setIsAddingToPlaylist(false);
-    }
-  }, [addSongToPlaylist, addedToPlaylist]);
-
-  let currentQueue: string[] = [];
-  
-  if (currentPlaylistSongs && !isPlayingFromLiked && !isPlayingFromArtist) {
-    currentQueue = currentPlaylistSongs;
-  } else if (isPlayingFromLiked) {
-    currentQueue = likedSongTitles;
-  } else if (isPlayingFromArtist && currentArtistQueue.length > 0) {
-    currentQueue = currentArtistQueue;
-  } else {
-    currentQueue = allSongs.map(s => s.title);
-  }
-  
-  const currentSongTitle = currentQueue[currentIndex];
-  const currentSong = allSongs.find(s => s.title === currentSongTitle) || allSongs[0];
-
-  useEffect(() => {
-    if (!currentSongTitle) return;
-    setRecentlyPlayed((prev) => {
-      if (prev[0] === currentSongTitle) return prev;
-      return [
-        currentSongTitle,
-        ...prev.filter((title) => title !== currentSongTitle),
-      ].slice(0, 5);
-    });
-  }, [currentSongTitle]);
-
-  const recentlyPlayedSongs = recentlyPlayed
-    .map((title) => allSongs.find((song) => song.title === title))
-    .filter(Boolean);
-
-  const filteredSongs = useMemo(() => {
-    if (!search.trim()) return allSongs;
-    return allSongs.filter((song) => {
-      return fuzzySearch(song.title, search) || fuzzySearch(song.artist, search);
-    });
-  }, [search, allSongs]);
-
-  const playSong = useCallback((title: string) => {
-    const index = allSongs.findIndex(s => s.title === title);
-    if (index !== -1) {
-      setCurrentPlaylistSongs(null);
-      setCurrentPlaylistId(null);
-      setIsPlayingFromLiked(false);
-      setIsPlayingFromArtist(false);
-      setShowLikedSongs(false);
-      setShowArtistView(false);
-      setSelectedArtist(null);
-      setCurrentArtistQueue([]);
-      setCurrentIndex(index);
-    }
-  }, [allSongs]);
-
-  const playSongFromPlaylist = useCallback((title: string, playlistSongTitles: string[], playlistId: string) => {
-    const index = playlistSongTitles.findIndex(t => t === title);
-    if (index !== -1) {
-      setCurrentPlaylistSongs(playlistSongTitles);
-      setCurrentPlaylistId(playlistId);
-      setIsPlayingFromLiked(false);
-      setIsPlayingFromArtist(false);
-      setShowLikedSongs(false);
-      setShowArtistView(false);
-      setSelectedArtist(null);
-      setCurrentArtistQueue([]);
-      setCurrentIndex(index);
-    }
-  }, []);
-
-  const playSongFromLiked = useCallback((title: string) => {
-    const index = likedSongTitles.findIndex(t => t === title);
-    if (index !== -1) {
-      setCurrentPlaylistSongs(null);
-      setCurrentPlaylistId(null);
-      setIsPlayingFromLiked(true);
-      setIsPlayingFromArtist(false);
-      setShowLikedSongs(true);
-      setShowArtistView(false);
-      setSelectedArtist(null);
-      setCurrentArtistQueue([]);
-      setCurrentIndex(index);
-    }
-  }, [likedSongTitles]);
-
-  const playSongFromArtist = useCallback((title: string) => {
-    const index = currentArtistQueue.findIndex(t => t === title);
-    if (index !== -1) {
-      setCurrentPlaylistSongs(null);
-      setCurrentPlaylistId(null);
-      setIsPlayingFromLiked(false);
-      setIsPlayingFromArtist(true);
-      setShowLikedSongs(false);
-      setShowArtistView(true);
-      setCurrentIndex(index);
-    }
-  }, [currentArtistQueue]);
-
-  const playNext = useCallback(() => {
-    if (currentIndex < currentQueue.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    } else {
-      setCurrentIndex(0);
-    }
-  }, [currentIndex, currentQueue.length]);
-
-  const playPrevious = useCallback(() => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
-    } else {
-      setCurrentIndex(currentQueue.length - 1);
-    }
-  }, [currentIndex, currentQueue.length]);
-
-  const scrollToTop = useCallback(() => {
-    scrollContentToTop();
-  }, [scrollContentToTop]);
-
   const handleCreatePlaylist = useCallback(async (name: string, coverFile?: File | null) => {
     if (name.trim()) {
       await createPlaylist(name.trim(), coverFile);
@@ -803,33 +779,15 @@ export default function Home() {
     }, 300);
   }, [deletePlaylist]);
 
-  const handleLikedSongs = useCallback(() => {
-    setSelectedPlaylist(null);
-    setShowLikedSongs(true);
-    setShowArtistView(false);
-    setSelectedArtist(null);
-    setIsPlayingFromArtist(false);
-    setActiveTab("library");
-  }, []);
-
-  const handleLibraryView = useCallback(() => {
-    setSelectedPlaylist(null);
-    setShowLikedSongs(false);
-    setShowArtistView(false);
-    setSelectedArtist(null);
-    setIsPlayingFromArtist(false);
-    setActiveTab("library");
-  }, []);
-
   const handleLike = useCallback(async (e: React.MouseEvent, songTitle: string) => {
     e.stopPropagation();
     await toggleLike(songTitle);
   }, [toggleLike]);
 
   const handleSelectSuggestion = useCallback((songTitle: string) => {
-    playSong(songTitle);
+    playSong(songTitle, 'all', undefined, allSongs.map(s => s.title));
     setShowSuggestions(false);
-  }, [playSong]);
+  }, [playSong, allSongs]);
 
   const clearSearch = useCallback(() => {
     setSearch("");
@@ -852,6 +810,116 @@ export default function Home() {
     }
   }, [search]);
 
+  const scrollToTop = useCallback(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, []);
+
+  const scrollContentToTop = useCallback(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 200);
+    };
+    window.addEventListener("scroll", handleScroll);
+    handleScroll();
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const handleScrollToTop = (e: CustomEvent) => {
+      if (e.detail === "home" || e.detail === "search") {
+        setTimeout(() => scrollContentToTop(), 100);
+      }
+    };
+    window.addEventListener('scrollToTop', handleScrollToTop as EventListener);
+    return () => window.removeEventListener('scrollToTop', handleScrollToTop as EventListener);
+  }, [scrollContentToTop]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const handleSelectPlaylist = (e: CustomEvent) => {
+      setSelectedPlaylist(e.detail);
+      setShowLikedSongs(false);
+      setActiveTab("library");
+      setShowArtistView(false);
+      setSelectedArtist(null);
+    };
+    window.addEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
+    return () => window.removeEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
+  }, []);
+
+  // Update recently played when song changes
+  useEffect(() => {
+    if (!playingSongTitle) return;
+    setRecentlyPlayed((prev) => {
+      if (prev[0] === playingSongTitle) return prev;
+      return [playingSongTitle, ...prev.filter((title) => title !== playingSongTitle)].slice(0, 5);
+    });
+  }, [playingSongTitle]);
+
+  const suggestions = useMemo(() => getSuggestions(search, allSongs, 5), [search, allSongs]);
+
+  const filteredSongs = useMemo(() => {
+    if (!search.trim()) return allSongs;
+    return allSongs.filter((song) => fuzzySearch(song.title, search) || fuzzySearch(song.artist, search));
+  }, [search, allSongs]);
+
+  const recentlyPlayedSongs = recentlyPlayed.map((title) => allSongs.find((song) => song.title === title)).filter(Boolean);
+
+  // For MusicPlayer - get current queue from persistent state
+  const playerQueue = playingQueue.length > 0 ? playingQueue : allSongs.map(s => s.title);
+  const playerIndex = playingIndex;
+  
+  const handlePlayerSetIndex = useCallback((value: React.SetStateAction<number>) => {
+    if (typeof value === 'function') {
+      const newIndex = value(playingIndex);
+      setPlayingIndex(newIndex);
+      setPlayingSongTitle(playerQueue[newIndex]);
+    } else {
+      setPlayingIndex(value);
+      setPlayingSongTitle(playerQueue[value]);
+    }
+  }, [playingIndex, playerQueue]);
+
+  // Create stable current song object for MusicPlayer - memoized to prevent re-renders
+  const musicPlayerCurrentSong = useMemo(() => {
+    if (!currentSongObject) {
+      return { title: "", artist: "", cover: "", src: "" };
+    }
+    return {
+      title: currentSongObject.title,
+      artist: currentSongObject.artist,
+      cover: currentSongObject.cover_url || "",
+      src: currentSongObject.audio_url || "",
+    };
+  }, [currentSongObject?.title, currentSongObject?.artist, currentSongObject?.cover_url, currentSongObject?.audio_url]);
+
+  // Create stable songs array for MusicPlayer
+  const musicPlayerSongs = useMemo(() => {
+    return allSongs.map(s => ({ 
+      title: s.title, 
+      artist: s.artist, 
+      cover: s.cover_url || "", 
+      src: s.audio_url || "" 
+    }));
+  }, [allSongs]);
+
+  // Loading state
   if (songsLoading || authLoading) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
@@ -871,7 +939,7 @@ export default function Home() {
       <main className="flex h-screen overflow-hidden">
         <Sidebar
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={handleNavigation}
           totalSongs={likedSongs.length}
           onNavigateToLibrary={handleLibraryView}
           onNavigateToLikedSongs={handleLikedSongs}
@@ -1003,7 +1071,7 @@ export default function Home() {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.05 }}
-                        onClick={() => playSong(song!.title)}
+                        onClick={() => playSong(song!.title, 'all', undefined, allSongs.map(s => s.title))}
                         className="group cursor-pointer relative"
                       >
                         <div className="relative rounded-xl overflow-hidden">
@@ -1048,7 +1116,7 @@ export default function Home() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.02 }}
                       className="group cursor-pointer relative"
-                      onClick={() => playSong(song.title)}
+                      onClick={() => playSong(song.title, 'all', undefined, allSongs.map(s => s.title))}
                     >
                       <div className="relative rounded-xl overflow-hidden">
                         <img
@@ -1165,7 +1233,7 @@ export default function Home() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.02 }}
                     className="group cursor-pointer relative"
-                    onClick={() => playSong(song.title)}
+                    onClick={() => playSong(song.title, 'all', undefined, allSongs.map(s => s.title))}
                   >
                     <div className="relative rounded-xl overflow-hidden">
                       <img
@@ -1325,7 +1393,6 @@ export default function Home() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {/* Add to Playlist Button in Artist View */}
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.95 }}
@@ -1688,7 +1755,24 @@ export default function Home() {
                     {playlists.map((playlistItem) => (
                       <button
                         key={playlistItem.id}
-                        onClick={() => handleAddToPlaylistFromArtist(playlistItem.id, selectedSongForPlaylist.title)}
+                        onClick={async () => {
+                          setIsAddingToPlaylist(true);
+                          try {
+                            await addSongToPlaylist(playlistItem.id, selectedSongForPlaylist.title);
+                            setAddedToPlaylist([...addedToPlaylist, playlistItem.id]);
+                            alert(`✅ Song added to playlist successfully!`);
+                            setTimeout(() => {
+                              setShowAddToPlaylistModal(false);
+                              setSelectedSongForPlaylist(null);
+                              setAddedToPlaylist([]);
+                            }, 1000);
+                          } catch (error) {
+                            console.error("Error adding to playlist:", error);
+                            alert("Failed to add song to playlist");
+                          } finally {
+                            setIsAddingToPlaylist(false);
+                          }
+                        }}
                         disabled={isAddingToPlaylist}
                         className="w-full text-left p-3 rounded-xl hover:bg-white/10 transition flex items-center gap-3 disabled:opacity-50"
                       >
@@ -1838,11 +1922,11 @@ export default function Home() {
       )}
 
       <MusicPlayer
-        songs={allSongs.map(s => ({ title: s.title, artist: s.artist, cover: s.cover_url, src: s.audio_url }))}
-        currentSong={{ title: currentSong?.title || "", artist: currentSong?.artist || "", cover: currentSong?.cover_url || "", src: currentSong?.audio_url || "" }}
-        currentIndex={currentIndex}
-        setCurrentIndex={setCurrentIndex}
-        currentQueue={currentQueue}
+        songs={musicPlayerSongs}
+        currentSong={musicPlayerCurrentSong}
+        currentIndex={playerIndex}
+        setCurrentIndex={handlePlayerSetIndex}
+        currentQueue={playerQueue}
         onNext={playNext}
         onPrev={playPrevious}
       />

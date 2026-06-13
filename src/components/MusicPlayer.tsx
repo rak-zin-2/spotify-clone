@@ -46,8 +46,10 @@ export default function MusicPlayer({
   const [progress, setProgress] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [previousVolume, setPreviousVolume] = useState(0.8);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [audioLoaded, setAudioLoaded] = useState(false);
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
+  const [isChangingSong, setIsChangingSong] = useState(false);
   
   // Shuffle state
   const [shuffledQueue, setShuffledQueue] = useState<string[]>([]);
@@ -57,15 +59,12 @@ export default function MusicPlayer({
   // Generate new shuffled queue when shuffle is toggled on or queue changes
   useEffect(() => {
     if (shuffle && currentQueue.length > 0) {
-      // Create a new shuffled queue
       const newShuffledQueue = [...currentQueue];
-      // Fisher-Yates shuffle algorithm
       for (let i = newShuffledQueue.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [newShuffledQueue[i], newShuffledQueue[j]] = [newShuffledQueue[j], newShuffledQueue[i]];
       }
       
-      // Find current song in shuffled queue and bring it to front
       const currentSongTitle = currentQueue[currentIndex];
       const currentSongIndex = newShuffledQueue.findIndex(s => s === currentSongTitle);
       if (currentSongIndex !== -1 && currentSongIndex !== 0) {
@@ -94,9 +93,9 @@ export default function MusicPlayer({
     }
   }, [currentIndex, currentQueue, isShuffled, shuffledQueue, shuffledIndex]);
 
+  // Handle next song - FIXED for auto-play
   const handleNext = useCallback(() => {
     if (repeat === "one") {
-      // Replay current song
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
         audioRef.current.play().catch(() => {});
@@ -105,10 +104,10 @@ export default function MusicPlayer({
       return;
     }
 
+    setIsChangingSong(true);
+
     if (isShuffled && shuffledQueue.length > 0) {
-      // Shuffle mode
       if (shuffledIndex < shuffledQueue.length - 1) {
-        // Go to next shuffled song
         const newIndex = shuffledIndex + 1;
         setShuffledIndex(newIndex);
         const nextSongTitle = shuffledQueue[newIndex];
@@ -117,7 +116,6 @@ export default function MusicPlayer({
           setCurrentIndex(originalIndex);
         }
       } else if (repeat === "all") {
-        // Loop back to first shuffled song and reshuffle
         const newShuffledQueue = [...currentQueue];
         for (let i = newShuffledQueue.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
@@ -130,19 +128,15 @@ export default function MusicPlayer({
         if (originalIndex !== -1) {
           setCurrentIndex(originalIndex);
         }
-      } else {
-        // End of shuffled queue, stop playing
-        setPlaying(false);
       }
     } else {
-      // Normal mode - use onNext from page.tsx (handles infinite loop)
       onNext();
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext]);
 
+  // Handle previous song
   const handlePrev = useCallback(() => {
     if (repeat === "one") {
-      // Restart current song
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
         audioRef.current.play().catch(() => {});
@@ -151,10 +145,10 @@ export default function MusicPlayer({
       return;
     }
 
+    setIsChangingSong(true);
+
     if (isShuffled && shuffledQueue.length > 0) {
-      // Shuffle mode
       if (shuffledIndex > 0) {
-        // Go to previous shuffled song
         const newIndex = shuffledIndex - 1;
         setShuffledIndex(newIndex);
         const prevSongTitle = shuffledQueue[newIndex];
@@ -163,7 +157,6 @@ export default function MusicPlayer({
           setCurrentIndex(originalIndex);
         }
       } else if (repeat === "all") {
-        // Go to last song in shuffled queue
         const newIndex = shuffledQueue.length - 1;
         setShuffledIndex(newIndex);
         const prevSongTitle = shuffledQueue[newIndex];
@@ -172,21 +165,18 @@ export default function MusicPlayer({
           setCurrentIndex(originalIndex);
         }
       } else {
-        // At beginning, restart current song
         if (audioRef.current) {
           audioRef.current.currentTime = 0;
         }
       }
     } else {
-      // Normal mode - use onPrev from page.tsx (handles infinite loop)
       onPrev();
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
 
-  // Handle song end
+  // Handle song end - FIXED to auto-play next
   const handleSongEnd = useCallback(() => {
     if (repeat === "one") {
-      // Replay the same song
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
         audioRef.current.play().catch(() => {});
@@ -202,31 +192,37 @@ export default function MusicPlayer({
     if (!audioRef.current || !currentSong?.src) return;
     
     const audio = audioRef.current;
+    const wasPlaying = playing;
     
-    // Reset states
+    // Reset states for new song
     setAudioLoaded(false);
     setIsLoading(true);
     setProgress(0);
     
-    // Check if we need to load a new song
+    // Only load if source changed
     if (audio.src !== currentSong.src) {
-      // Set new source
       audio.src = currentSong.src;
       audio.load();
     }
     
-    // Set up event handlers for this song
     const handleCanPlayThrough = () => {
       setAudioLoaded(true);
       setIsLoading(false);
-      // Auto-play if we were playing before
-      if (playing || !audio.paused) {
+      setIsChangingSong(false);
+      
+      // Auto-play only if:
+      // 1. User has interacted before (not first load), OR
+      // 2. Was playing before song change
+      if ((hasUserInteracted || wasPlaying) && !isChangingSong) {
         audio.play()
           .then(() => setPlaying(true))
           .catch((err) => {
             console.error("Auto-play failed:", err);
             setPlaying(false);
           });
+      } else {
+        // Don't auto-play on first load
+        setPlaying(false);
       }
     };
     
@@ -234,6 +230,7 @@ export default function MusicPlayer({
       console.error("Audio loading error for:", currentSong.title, e);
       setIsLoading(false);
       setAudioLoaded(false);
+      setIsChangingSong(false);
     };
     
     const handlePlaying = () => {
@@ -255,7 +252,7 @@ export default function MusicPlayer({
       audio.removeEventListener('playing', handlePlaying);
       audio.removeEventListener('pause', handlePause);
     };
-  }, [currentSong, playing]);
+  }, [currentSong, hasUserInteracted, isChangingSong]);
 
   // Update volume when changed
   useEffect(() => {
@@ -288,12 +285,16 @@ export default function MusicPlayer({
     if (!audioRef.current) return;
     if (!audioLoaded && isLoading) return;
     
+    setHasUserInteracted(true);
+    
     if (playing) {
       audioRef.current.pause();
       setPlaying(false);
     } else {
       audioRef.current.play()
-        .then(() => setPlaying(true))
+        .then(() => {
+          setPlaying(true);
+        })
         .catch((err) => {
           console.error("Play failed:", err);
           setPlaying(false);
@@ -348,7 +349,6 @@ export default function MusicPlayer({
     return <Repeat size={16} className="md:w-4 md:h-4" />;
   };
 
-  // Add CSS animation keyframes to the document only once
   useEffect(() => {
     const styleId = 'music-player-animations';
     if (!document.getElementById(styleId)) {
@@ -372,7 +372,7 @@ export default function MusicPlayer({
     <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto">
       <div className="bg-gradient-to-r from-gray-900/95 to-gray-800/95 backdrop-blur-xl rounded-t-xl border-t border-blue-500/20 px-3 md:px-5 py-3 md:py-4">
         
-        {/* Progress Bar - Thicker version */}
+        {/* Progress Bar */}
         <div className="w-full mb-3 md:mb-4 px-2">
           <div className="flex items-center gap-2 md:gap-3">
             <span className="text-[10px] md:text-xs text-blue-300/60 w-8 md:w-10">{formatTime(currentTime)}</span>
@@ -407,7 +407,7 @@ export default function MusicPlayer({
           </div>
         </div>
 
-        {/* Main layout - grid ensures perfect centering */}
+        {/* Main layout */}
         <div className="grid grid-cols-3 items-center gap-2 md:gap-4">
           {/* LEFT - Rotating Photo + Song Info */}
           <div className="flex items-center gap-2 md:gap-3 justify-start min-w-0">
@@ -456,7 +456,7 @@ export default function MusicPlayer({
               <SkipBack size={16} className="md:w-5 md:h-5" />
             </motion.button>
             
-            {/* Play/Pause Button - Perfect Circle */}
+            {/* Play/Pause Button */}
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
