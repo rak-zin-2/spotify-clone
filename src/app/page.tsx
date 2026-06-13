@@ -955,7 +955,7 @@ export default function Home() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
-          className="relative z-[100] flex-1 overflow-y-auto md:ml-72 pt-65 md:pt-[70px] pb-[140px] px-4 md:px-5"
+          className="relative z-[100] flex-1 overflow-y-auto md:ml-72 pt-55 md:pt-[70px] pb-[140px] px-4 md:px-5"
         >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 md:mb-8">
             <div className="flex items-center justify-between w-full md:w-auto">
