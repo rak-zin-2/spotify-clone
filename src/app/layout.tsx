@@ -2,11 +2,14 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import AuthGuard from "@/components/AuthGuard";
+import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
+import UpdateNotification from "@/components/UpdateNotification";
+import SplashScreen from "@/components/SplashScreen";
 
 export const metadata: Metadata = {
   title: "PavPav - Music Streaming",
   description: "Your favorite music streaming platform",
-  manifest: "/manifest.webmanifest", // Changed from /site.webmanifest
+  manifest: "/manifest.webmanifest",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -26,7 +29,6 @@ export const metadata: Metadata = {
   formatDetection: {
     telephone: false,
   },
-  // Remove viewport and themeColor from metadata (they moved to separate export)
 };
 
 // Add separate viewport export (required for Next.js 16+)
@@ -59,9 +61,12 @@ export default function RootLayout({
         <link rel="shortcut icon" href="/favicon.ico" />
       </head>
       <body>
+        <SplashScreen />
         <AuthGuard>
           {children}
         </AuthGuard>
+        <ServiceWorkerRegistration />
+        <UpdateNotification />
       </body>
     </html>
   );
