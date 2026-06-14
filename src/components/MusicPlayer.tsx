@@ -71,7 +71,8 @@ export default function MusicPlayer({
     audioService.setOnEndCallback(() => {
       console.log('Song ended callback from audioService');
       if (!audioService.isUserPausedState()) {
-        handleSongEnd();
+        // CRITICAL FIX: Call handleNext exactly like skip button does
+        handleNext();
       }
     });
   }, []);
@@ -160,7 +161,7 @@ export default function MusicPlayer({
     }
   }, [currentIndex, currentQueue, isShuffled, shuffledQueue, shuffledIndex]);
 
-  // Handle next song - FIXED
+  // Handle next song - this works for skip button
   const handleNext = useCallback(() => {
     console.log('handleNext called, currentIndex:', currentIndex, 'queue length:', currentQueue.length);
     
@@ -201,7 +202,7 @@ export default function MusicPlayer({
         }
       }
     } else {
-      // CRITICAL FIX: Call onNext to update parent's playingIndex
+      // This calls page.tsx's playNext which increments the index
       onNext();
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, currentIndex, setCurrentIndex, onNext]);
@@ -251,28 +252,10 @@ export default function MusicPlayer({
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
 
-  // Handle song end - auto-play next
-  const handleSongEnd = useCallback(() => {
-    console.log('handleSongEnd called, repeat mode:', repeat);
-    
-    if (repeat === "one") {
-      const audio = audioService.getAudioElement();
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-        setPlaying(true);
-      }
-    } else {
-      // This will call onNext which updates the parent's playingIndex
-      handleNext();
-    }
-  }, [repeat, handleNext]);
-
-  // Load new song - with auto-play fix
+  // Load new song
   useEffect(() => {
     if (!currentSong?.src) return;
     
-    // Check if this is a new song (different from previous)
     const wasPlaying = playing;
     
     console.log('Loading new song:', currentSong.title, 'wasPlaying:', wasPlaying);
@@ -291,11 +274,10 @@ export default function MusicPlayer({
         setIsLoading(false);
         setIsChangingSong(false);
         
-        // CRITICAL: Auto-play if it was playing before or if this is a song transition
         const shouldAutoPlay = (hasUserInteracted || wasPlaying) && !audioService.isUserPausedState();
         
         if (shouldAutoPlay && !isChangingSong) {
-          console.log('Auto-playing next song:', currentSong.title);
+          console.log('Auto-playing song:', currentSong.title);
           audioService.play();
           setPlaying(true);
         } else {
