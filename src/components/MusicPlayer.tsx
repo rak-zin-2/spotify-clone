@@ -57,14 +57,37 @@ export default function MusicPlayer({
   const isMounted = useRef(true);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Preload next song when current song changes
+  useEffect(() => {
+    if (!currentQueue.length || currentIndex === undefined) return;
+    
+    // Calculate next song index
+    let nextIndex = currentIndex + 1;
+    if (nextIndex >= currentQueue.length) {
+      if (repeat === "all") {
+        nextIndex = 0;
+      } else {
+        return; // Don't preload if no next song
+      }
+    }
+    
+    const nextSongTitle = currentQueue[nextIndex];
+    const nextSong = songs.find(s => s.title === nextSongTitle);
+    
+    if (nextSong?.src) {
+      console.log('[MusicPlayer] Preloading next song:', nextSong.title);
+      audioService.preloadNextSong(nextSong.src);
+    }
+  }, [currentIndex, currentQueue, songs, repeat]);
+
   const handleNext = useCallback(() => {
-    console.log('[MusicPlayer] handleNext called, repeat:', repeat, 'currentIndex:', currentIndex);
+    console.log('[MusicPlayer] handleNext called');
     
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
       if (audio) {
         audio.currentTime = 0;
-        audio.play().catch(e => console.error('[MusicPlayer] Replay failed:', e));
+        audio.play().catch(e => console.error('Replay failed:', e));
         setPlaying(true);
       }
       return;
@@ -98,7 +121,7 @@ export default function MusicPlayer({
     } else {
       onNext();
     }
-  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext, currentIndex]);
+  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext]);
 
   const handlePrev = useCallback(() => {
     console.log('[MusicPlayer] handlePrev called');
@@ -107,7 +130,7 @@ export default function MusicPlayer({
       const audio = audioService.getAudioElement();
       if (audio) {
         audio.currentTime = 0;
-        audio.play().catch(e => console.error('[MusicPlayer] Replay failed:', e));
+        audio.play().catch(e => console.error('Replay failed:', e));
         setPlaying(true);
       }
       return;
@@ -146,7 +169,7 @@ export default function MusicPlayer({
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
 
   const handleSongEnd = useCallback(() => {
-    console.log('[MusicPlayer] handleSongEnd called, repeat:', repeat);
+    console.log('[MusicPlayer] handleSongEnd called');
     
     if (!isMounted.current) return;
     
@@ -157,13 +180,13 @@ export default function MusicPlayer({
         const audio = audioService.getAudioElement();
         if (audio) {
           audio.currentTime = 0;
-          audio.play().catch(e => console.error('[MusicPlayer] Replay failed:', e));
+          audio.play().catch(e => console.error('Replay failed:', e));
           setPlaying(true);
         }
       } else {
         handleNext();
       }
-    }, 50);
+    }, 10); // Reduced delay for faster transition
   }, [repeat, handleNext]);
 
   // Initialize audio service callbacks
@@ -171,17 +194,14 @@ export default function MusicPlayer({
     console.log('[MusicPlayer] Setting up audio service callbacks');
     
     audioService.setNextCallback(() => {
-      console.log('[MusicPlayer] Next track from lock screen');
       handleNext();
     });
     
     audioService.setPrevCallback(() => {
-      console.log('[MusicPlayer] Previous track from lock screen');
       handlePrev();
     });
     
     audioService.setOnEndCallback(() => {
-      console.log('[MusicPlayer] End callback from audioService');
       handleSongEnd();
     });
     
@@ -195,7 +215,6 @@ export default function MusicPlayer({
   // Update lock screen metadata
   useEffect(() => {
     if (currentSong?.title) {
-      console.log('[MusicPlayer] Updating lock screen metadata for:', currentSong.title);
       audioService.updateMediaMetadata(
         currentSong.title,
         currentSong.artist,
@@ -259,12 +278,12 @@ export default function MusicPlayer({
     }
   }, [shuffle, currentQueue, currentIndex]);
 
-  // Load new song state
+  // Load new song state - faster loading
   useEffect(() => {
     if (!currentSong?.src) return;
     
     const wasPlaying = playing;
-    console.log('[MusicPlayer] Loading new song:', currentSong.title, 'wasPlaying:', wasPlaying);
+    console.log('[MusicPlayer] Loading song:', currentSong.title);
     
     setAudioLoaded(false);
     setIsLoading(true);
@@ -273,6 +292,7 @@ export default function MusicPlayer({
     const serviceAudio = audioService.getAudioElement();
     
     if (serviceAudio) {
+      // Use canplaythrough for faster loading (less buffering needed)
       const handleCanPlay = () => {
         setAudioLoaded(true);
         setIsLoading(false);
@@ -284,23 +304,37 @@ export default function MusicPlayer({
           setPlaying(false);
         }
         
-        serviceAudio.removeEventListener('canplay', handleCanPlay);
+        serviceAudio.removeEventListener('canplaythrough', handleCanPlay);
       };
       
       const handleError = (e: Event) => {
-        console.error("[MusicPlayer] Audio loading error:", e);
+        console.error("[MusicPlayer] Audio error:", e);
         setIsLoading(false);
       };
       
-      serviceAudio.addEventListener('canplay', handleCanPlay);
+      serviceAudio.addEventListener('canplaythrough', handleCanPlay);
       serviceAudio.addEventListener('error', handleError);
       
+      // Fallback timeout - if it takes too long, just try to play
+      const timeout = setTimeout(() => {
+        if (isLoading) {
+          console.log('[MusicPlayer] Loading timeout, forcing play');
+          setIsLoading(false);
+          setAudioLoaded(true);
+          if ((hasUserInteracted || wasPlaying) && !audioService.isUserPausedState()) {
+            audioService.play();
+            setPlaying(true);
+          }
+        }
+      }, 500);
+      
       return () => {
-        serviceAudio.removeEventListener('canplay', handleCanPlay);
+        serviceAudio.removeEventListener('canplaythrough', handleCanPlay);
         serviceAudio.removeEventListener('error', handleError);
+        clearTimeout(timeout);
       };
     }
-  }, [currentSong, hasUserInteracted, playing]);
+  }, [currentSong, hasUserInteracted, playing, isLoading]);
 
   // Update progress bar
   useEffect(() => {
@@ -311,8 +345,7 @@ export default function MusicPlayer({
     progressIntervalRef.current = setInterval(() => {
       const audio = audioService.getAudioElement();
       if (audio && audio.duration && isFinite(audio.duration) && !isNaN(audio.duration) && !audio.paused) {
-        const newProgress = (audio.currentTime / audio.duration) * 100;
-        setProgress(newProgress || 0);
+        setProgress((audio.currentTime / audio.duration) * 100 || 0);
       }
     }, 100);
     
@@ -324,7 +357,6 @@ export default function MusicPlayer({
   }, []);
 
   const togglePlay = useCallback(() => {
-    console.log('[MusicPlayer] togglePlay called');
     setHasUserInteracted(true);
     
     if (playing) {
@@ -394,7 +426,6 @@ export default function MusicPlayer({
     <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto">
       <div className="bg-gradient-to-r from-gray-900/95 to-gray-800/95 backdrop-blur-xl rounded-t-xl border-t border-blue-500/20 px-3 md:px-5 py-3 md:py-4">
         
-        {/* Progress Bar */}
         <div className="w-full mb-3 md:mb-4 px-2">
           <div className="flex items-center gap-2 md:gap-3">
             <span className="text-[10px] md:text-xs text-blue-300/60 w-8 md:w-10">{formatTime(currentTime)}</span>
@@ -429,7 +460,6 @@ export default function MusicPlayer({
           </div>
         </div>
 
-        {/* Main layout */}
         <div className="grid grid-cols-3 items-center gap-2 md:gap-4">
           <div className="flex items-center gap-2 md:gap-3 justify-start min-w-0">
             <div

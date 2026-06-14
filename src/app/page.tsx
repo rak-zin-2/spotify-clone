@@ -518,7 +518,7 @@ export default function Home() {
     return allSongs.map(s => s.title);
   }, [playingQueue, allSongs]);
 
-// FIXED: Play next function - properly goes to the next song in queue
+// FASTER: Play next function with preloading optimization
 const playNext = useCallback(() => {
   const currentQueue = getActualPlayingQueue();
   console.log('[Page] playNext - Current index:', playingIndex, 'Queue length:', currentQueue.length);
@@ -537,7 +537,7 @@ const playNext = useCallback(() => {
     setPlayingIndex(0);
     setPlayingSongTitle(currentQueue[0]);
   }
-}, [playingIndex, playingContextType, getActualPlayingQueue]);
+}, [playingIndex, getActualPlayingQueue]);
 
 // FIXED: Play previous function
 const playPrevious = useCallback(() => {
