@@ -6,11 +6,6 @@ class AudioService {
   private audioElement: HTMLAudioElement | null = null;
   private onEndCallback: (() => void) | null = null;
   private isUserPaused = false;
-  private currentMetadata = {
-    title: '',
-    artist: '',
-    artwork: ''
-  };
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -45,7 +40,8 @@ class AudioService {
   private setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
     
-    // Standard lock screen controls - Previous, Play/Pause, Next only
+    // ONLY standard lock screen controls - NO seekbackward/seekforward
+    // This shows: Previous Track | Play/Pause | Next Track
     navigator.mediaSession.setActionHandler('play', () => {
       console.log('Lock screen: Play pressed');
       this.isUserPaused = false;
@@ -69,6 +65,9 @@ class AudioService {
       this.isUserPaused = false;
       if (this.onNextCallback) this.onNextCallback();
     });
+    
+    // IMPORTANT: No seekbackward or seekforward handlers!
+    // This ensures the lock screen shows song change buttons, not 10-second skip buttons
   }
 
   private setupLockScreenControls() {
@@ -90,7 +89,7 @@ class AudioService {
     this.onNextCallback = callback;
     if ('mediaSession' in navigator) {
       navigator.mediaSession.setActionHandler('nexttrack', () => {
-        console.log('Lock screen: Next track triggered');
+        console.log('Lock screen: Next track - changing to next song');
         this.isUserPaused = false;
         callback();
       });
@@ -101,7 +100,7 @@ class AudioService {
     this.onPrevCallback = callback;
     if ('mediaSession' in navigator) {
       navigator.mediaSession.setActionHandler('previoustrack', () => {
-        console.log('Lock screen: Previous track triggered');
+        console.log('Lock screen: Previous track - changing to previous song');
         this.isUserPaused = false;
         callback();
       });
@@ -118,7 +117,7 @@ class AudioService {
       this.audioElement.src = src;
       this.audioElement.load();
       
-      if (wasPlaying && !this.isUserPaused) {
+      if ((wasPlaying || !this.isUserPaused) && !this.isUserPaused) {
         setTimeout(() => {
           this.play();
         }, 100);
@@ -186,16 +185,12 @@ class AudioService {
 
   // Update lock screen with album art, title, and artist
   updateMediaMetadata(title: string, artist: string, artworkUrl: string) {
-    this.currentMetadata = { title, artist, artwork: artworkUrl };
-    
     console.log('Updating lock screen metadata:', { title, artist, artworkUrl });
     
     if ('mediaSession' in navigator && navigator.mediaSession) {
-      // Create artwork array
       const artwork = [];
       
       if (artworkUrl && artworkUrl !== '') {
-        // Add multiple sizes for better display
         artwork.push(
           { src: artworkUrl, sizes: '96x96', type: 'image/jpeg' },
           { src: artworkUrl, sizes: '128x128', type: 'image/jpeg' },
@@ -205,13 +200,11 @@ class AudioService {
           { src: artworkUrl, sizes: '512x512', type: 'image/jpeg' }
         );
       } else {
-        // Fallback artwork
         artwork.push(
           { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }
         );
       }
       
-      // Set the metadata that appears on lock screen
       navigator.mediaSession.metadata = new MediaMetadata({
         title: title || 'Unknown Song',
         artist: artist || 'Unknown Artist',
@@ -219,9 +212,7 @@ class AudioService {
         artwork: artwork
       });
       
-      console.log('Lock screen metadata updated successfully');
-    } else {
-      console.warn('MediaSession API not supported on this device');
+      console.log('Lock screen metadata updated');
     }
   }
 
