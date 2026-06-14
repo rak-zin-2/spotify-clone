@@ -151,16 +151,6 @@ const RotatingPlaylistCover = ({ playlist, allSongs }: { playlist: any; allSongs
       setImages(covers.length > 0 ? covers : []);
     }
   }, [playlist.songs, playlist.cover_url, allSongs]);
-  
-  // Listen for mini player toggle from MusicPlayer
-useEffect(() => {
-  const handleToggleMiniPlayer = (e: CustomEvent) => {
-    setIsMiniPlayerVisible(e.detail.visible);
-  };
-  
-  window.addEventListener('toggleMiniPlayer', handleToggleMiniPlayer as EventListener);
-  return () => window.removeEventListener('toggleMiniPlayer', handleToggleMiniPlayer as EventListener);
-}, []);
 
   useEffect(() => {
     if (images.length <= 1) return;
@@ -446,8 +436,7 @@ const AdminEditSongModal = ({
     </AnimatePresence>
   );
 };
-// ========== MINI MUSIC PLAYER VISIBILITY STATE ==========
-const [isMiniPlayerVisible, setIsMiniPlayerVisible] = useState(true);
+
 // iOS audio activation handler
 const activateIOSAudio = () => {
   // Create and play a silent audio to "activate" the audio session on iOS
@@ -513,6 +502,7 @@ export default function Home() {
   // ========== MINI MUSIC PLAYER STATE ==========
   const [miniPlayerProgress, setMiniPlayerProgress] = useState(0);
   const [isMiniPlayerPlaying, setIsMiniPlayerPlaying] = useState(false);
+  const [isMiniPlayerVisible, setIsMiniPlayerVisible] = useState(true);
 
   // Hooks
   const { songs: supabaseSongs, loading: songsLoading, addSong: addSongToSupabase, deleteSong: deleteSongFromSupabase, refreshSongs, updateSong: updateSongInSupabase, uploadAudioFile, uploadCoverImage } = useSupabaseSongs();
@@ -987,6 +977,16 @@ const playNext = useCallback(() => {
     };
     window.addEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
     return () => window.removeEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
+  }, []);
+
+  // ========== LISTEN FOR MINI PLAYER TOGGLE FROM MUSIC PLAYER ==========
+  useEffect(() => {
+    const handleToggleMiniPlayer = (e: CustomEvent) => {
+      setIsMiniPlayerVisible(e.detail.visible);
+    };
+    
+    window.addEventListener('toggleMiniPlayer', handleToggleMiniPlayer as EventListener);
+    return () => window.removeEventListener('toggleMiniPlayer', handleToggleMiniPlayer as EventListener);
   }, []);
 
   // Update recently played when song changes
@@ -2129,16 +2129,16 @@ const playNext = useCallback(() => {
 
       {/* ========== DRAGGABLE MINI MUSIC PLAYER ========== */}
       {isMiniPlayerVisible && (
-  <DraggableMiniPlayer
-    currentSong={musicPlayerCurrentSong}
-    isPlaying={isMiniPlayerPlaying}
-    onTogglePlay={handleMiniPlayerTogglePlay}
-    onNext={playNext}
-    onPrev={playPrevious}
-    progress={miniPlayerProgress}
-    onSeek={handleMiniPlayerSeek}
-  />
-)}
+        <DraggableMiniPlayer
+          currentSong={musicPlayerCurrentSong}
+          isPlaying={isMiniPlayerPlaying}
+          onTogglePlay={handleMiniPlayerTogglePlay}
+          onNext={playNext}
+          onPrev={playPrevious}
+          progress={miniPlayerProgress}
+          onSeek={handleMiniPlayerSeek}
+        />
+      )}
 
       <AuthModal
         isOpen={showAuthModal}
