@@ -19,7 +19,7 @@ class AudioService {
     this.audioElement = new Audio();
     this.audioElement.crossOrigin = 'anonymous';
     
-    // Enable background playback
+    // Enable background playback - CRITICAL for lock screen
     if ('mediaSession' in navigator) {
       this.setupMediaSession();
     }
@@ -29,18 +29,27 @@ class AudioService {
     
     // Handle when audio naturally ends
     if (this.audioElement) {
-      this.audioElement.onended = () => {
+      // Use a stronger binding for ended event
+      const endedHandler = () => {
         console.log('Audio ended naturally, triggering next song');
-        if (this.onEndCallback && !this.isUserPaused) {
+        // Don't check isUserPaused because a natural end should always trigger next
+        // regardless of pause state (unless repeat is on)
+        if (this.onEndCallback) {
+          console.log('Calling onEndCallback from AudioService');
           this.onEndCallback();
         }
       };
+      
+      this.audioElement.onended = endedHandler;
+      
+      // Also add event listener for redundancy (some browsers prefer addEventListener)
+      this.audioElement.addEventListener('ended', endedHandler);
       
       // Handle errors during playback
       this.audioElement.onerror = (e) => {
         console.error('Audio element error:', e);
         // Try to skip to next song on error
-        if (this.onEndCallback && !this.isUserPaused) {
+        if (this.onEndCallback) {
           console.log('Error occurred, skipping to next song');
           this.onEndCallback();
         }
@@ -80,6 +89,7 @@ class AudioService {
     if (this.audioElement) {
       this.audioElement.setAttribute('playsinline', 'true');
       
+      // This ensures audio continues when app is in background
       document.addEventListener('visibilitychange', () => {
         if (document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
           console.log('App in background, audio continues');
@@ -114,7 +124,12 @@ class AudioService {
   }
 
   setOnEndCallback(callback: () => void) {
+    console.log('Setting onEndCallback in AudioService');
     this.onEndCallback = callback;
+    // Also store it on the audio element directly for redundancy
+    if (this.audioElement) {
+      (this.audioElement as any).__onEndCallback = callback;
+    }
   }
 
   setSrc(src: string) {
@@ -129,7 +144,6 @@ class AudioService {
     if (this.audioElement) {
       const wasPlaying = !this.audioElement.paused;
       
-      // Store the current time and playing state
       const shouldAutoPlay = (wasPlaying || !this.isUserPaused) && !this.isUserPaused;
       
       // Set new source
@@ -175,8 +189,6 @@ class AudioService {
         })
         .catch(error => {
           console.error('Play failed:', error);
-          // If play fails, it might be because the audio isn't loaded yet
-          // Try again after a short delay
           if (error.name === 'NotAllowedError') {
             console.log('Play was prevented by browser, waiting for user interaction');
           } else if (error.name === 'NotSupportedError') {

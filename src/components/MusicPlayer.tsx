@@ -56,8 +56,125 @@ export default function MusicPlayer({
   const [shuffledIndex, setShuffledIndex] = useState(0);
   const [isShuffled, setIsShuffled] = useState(false);
 
-  // Initialize audio service callbacks
+  // Reference to track if component is mounted
+  const isMounted = useRef(true);
+
+  // Handle next song - defined before use in callbacks
+  const handleNext = useCallback(() => {
+    console.log('handleNext called from MusicPlayer, current index:', currentIndex, 'queue length:', currentQueue.length);
+    
+    if (repeat === "one") {
+      const audio = audioService.getAudioElement();
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+        setPlaying(true);
+      }
+      return;
+    }
+
+    setIsChangingSong(true);
+    audioService.resetUserPauseState();
+
+    if (isShuffled && shuffledQueue.length > 0) {
+      if (shuffledIndex < shuffledQueue.length - 1) {
+        const newIndex = shuffledIndex + 1;
+        setShuffledIndex(newIndex);
+        const nextSongTitle = shuffledQueue[newIndex];
+        const originalIndex = currentQueue.findIndex(s => s === nextSongTitle);
+        if (originalIndex !== -1) {
+          setCurrentIndex(originalIndex);
+        }
+      } else if (repeat === "all") {
+        const newShuffledQueue = [...currentQueue];
+        for (let i = newShuffledQueue.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [newShuffledQueue[i], newShuffledQueue[j]] = [newShuffledQueue[j], newShuffledQueue[i]];
+        }
+        setShuffledQueue(newShuffledQueue);
+        setShuffledIndex(0);
+        const nextSongTitle = newShuffledQueue[0];
+        const originalIndex = currentQueue.findIndex(s => s === nextSongTitle);
+        if (originalIndex !== -1) {
+          setCurrentIndex(originalIndex);
+        }
+      }
+    } else {
+      // Call the parent's onNext which handles index increment
+      onNext();
+    }
+  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext, currentIndex]);
+
+  // Handle previous song
+  const handlePrev = useCallback(() => {
+    console.log('handlePrev called from MusicPlayer');
+    
+    if (repeat === "one") {
+      const audio = audioService.getAudioElement();
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+        setPlaying(true);
+      }
+      return;
+    }
+
+    setIsChangingSong(true);
+    audioService.resetUserPauseState();
+
+    if (isShuffled && shuffledQueue.length > 0) {
+      if (shuffledIndex > 0) {
+        const newIndex = shuffledIndex - 1;
+        setShuffledIndex(newIndex);
+        const prevSongTitle = shuffledQueue[newIndex];
+        const originalIndex = currentQueue.findIndex(s => s === prevSongTitle);
+        if (originalIndex !== -1) {
+          setCurrentIndex(originalIndex);
+        }
+      } else if (repeat === "all") {
+        const newIndex = shuffledQueue.length - 1;
+        setShuffledIndex(newIndex);
+        const prevSongTitle = shuffledQueue[newIndex];
+        const originalIndex = currentQueue.findIndex(s => s === prevSongTitle);
+        if (originalIndex !== -1) {
+          setCurrentIndex(originalIndex);
+        }
+      } else {
+        const audio = audioService.getAudioElement();
+        if (audio) {
+          audio.currentTime = 0;
+        }
+      }
+    } else {
+      onPrev();
+    }
+  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
+
+  // Handle song end - this is the callback from AudioService
+  const handleSongEnd = useCallback(() => {
+    console.log('handleSongEnd called from MusicPlayer, repeat mode:', repeat);
+    
+    // Use a small timeout to ensure state is updated properly
+    setTimeout(() => {
+      if (repeat === "one") {
+        const audio = audioService.getAudioElement();
+        if (audio) {
+          audio.currentTime = 0;
+          audio.play().catch(e => console.error('Failed to replay:', e));
+          setPlaying(true);
+        }
+      } else {
+        // Call handleNext to go to next song
+        console.log('Calling handleNext from handleSongEnd');
+        handleNext();
+      }
+    }, 50);
+  }, [repeat, handleNext]);
+
+  // Initialize audio service callbacks - only once
   useEffect(() => {
+    console.log('Setting up audio service callbacks');
+    
     audioService.setNextCallback(() => {
       console.log('Next track triggered from lock screen');
       handleNext();
@@ -69,16 +186,22 @@ export default function MusicPlayer({
     });
     
     audioService.setOnEndCallback(() => {
-  console.log('Song ended callback from audioService');
-  if (!audioService.isUserPausedState()) {
-    handleSongEnd();
-  }
-});
-  }, []);
+      console.log('Song ended callback from audioService - triggering handleSongEnd');
+      handleSongEnd();
+    });
+    
+    return () => {
+      // Cleanup callbacks on unmount
+      audioService.setOnEndCallback(() => {});
+      audioService.setNextCallback(() => {});
+      audioService.setPrevCallback(() => {});
+    };
+  }, [handleNext, handlePrev, handleSongEnd]);
 
   // Update lock screen metadata whenever current song changes
   useEffect(() => {
-    if (currentSong) {
+    if (currentSong && currentSong.title) {
+      console.log('Updating lock screen metadata for:', currentSong.title);
       audioService.updateMediaMetadata(
         currentSong.title,
         currentSong.artist,
@@ -108,7 +231,8 @@ export default function MusicPlayer({
 
   // Sync audio element with service
   useEffect(() => {
-    if (currentSong?.src) {
+    if (currentSong?.src && isMounted.current) {
+      console.log('Setting audio source for new song:', currentSong.title);
       audioService.setSrc(currentSong.src);
     }
   }, [currentSong]);
@@ -160,128 +284,26 @@ export default function MusicPlayer({
     }
   }, [currentIndex, currentQueue, isShuffled, shuffledQueue, shuffledIndex]);
 
-  // Handle next song
-  const handleNext = useCallback(() => {
-    console.log('handleNext called');
-    
-    if (repeat === "one") {
-      const audio = audioService.getAudioElement();
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-        setPlaying(true);
-      }
-      return;
-    }
-
-    setIsChangingSong(true);
-    audioService.resetUserPauseState();
-
-    if (isShuffled && shuffledQueue.length > 0) {
-      if (shuffledIndex < shuffledQueue.length - 1) {
-        const newIndex = shuffledIndex + 1;
-        setShuffledIndex(newIndex);
-        const nextSongTitle = shuffledQueue[newIndex];
-        const originalIndex = currentQueue.findIndex(s => s === nextSongTitle);
-        if (originalIndex !== -1) {
-          setCurrentIndex(originalIndex);
-        }
-      } else if (repeat === "all") {
-        const newShuffledQueue = [...currentQueue];
-        for (let i = newShuffledQueue.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [newShuffledQueue[i], newShuffledQueue[j]] = [newShuffledQueue[j], newShuffledQueue[i]];
-        }
-        setShuffledQueue(newShuffledQueue);
-        setShuffledIndex(0);
-        const nextSongTitle = newShuffledQueue[0];
-        const originalIndex = currentQueue.findIndex(s => s === nextSongTitle);
-        if (originalIndex !== -1) {
-          setCurrentIndex(originalIndex);
-        }
-      }
-    } else {
-      onNext();
-    }
-  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext]);
-
-  // Handle previous song
-  const handlePrev = useCallback(() => {
-    console.log('handlePrev called');
-    
-    if (repeat === "one") {
-      const audio = audioService.getAudioElement();
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-        setPlaying(true);
-      }
-      return;
-    }
-
-    setIsChangingSong(true);
-    audioService.resetUserPauseState();
-
-    if (isShuffled && shuffledQueue.length > 0) {
-      if (shuffledIndex > 0) {
-        const newIndex = shuffledIndex - 1;
-        setShuffledIndex(newIndex);
-        const prevSongTitle = shuffledQueue[newIndex];
-        const originalIndex = currentQueue.findIndex(s => s === prevSongTitle);
-        if (originalIndex !== -1) {
-          setCurrentIndex(originalIndex);
-        }
-      } else if (repeat === "all") {
-        const newIndex = shuffledQueue.length - 1;
-        setShuffledIndex(newIndex);
-        const prevSongTitle = shuffledQueue[newIndex];
-        const originalIndex = currentQueue.findIndex(s => s === prevSongTitle);
-        if (originalIndex !== -1) {
-          setCurrentIndex(originalIndex);
-        }
-      } else {
-        const audio = audioService.getAudioElement();
-        if (audio) {
-          audio.currentTime = 0;
-        }
-      }
-    } else {
-      onPrev();
-    }
-  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
-
-  // Handle song end - auto-play next
-  const handleSongEnd = useCallback(() => {
-    console.log('handleSongEnd called, repeat mode:', repeat);
-    
-    if (repeat === "one") {
-      const audio = audioService.getAudioElement();
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-        setPlaying(true);
-      }
-    } else {
-      handleNext();
-    }
-  }, [repeat, handleNext]);
-
-  // Load new song
+  // Load new song - with improved handling
   useEffect(() => {
     if (!currentSong?.src) return;
     
     const wasPlaying = playing;
     
+    console.log('Loading new song:', currentSong.title, 'wasPlaying:', wasPlaying);
+    
     setAudioLoaded(false);
     setIsLoading(true);
     setProgress(0);
     
+    // Set source on audio service
     audioService.setSrc(currentSong.src);
     
     const serviceAudio = audioService.getAudioElement();
     
     if (serviceAudio) {
       const handleCanPlayThrough = () => {
+        console.log('Song can play through:', currentSong.title);
         setAudioLoaded(true);
         setIsLoading(false);
         setIsChangingSong(false);
@@ -289,7 +311,7 @@ export default function MusicPlayer({
         const shouldAutoPlay = (hasUserInteracted || wasPlaying) && !audioService.isUserPausedState();
         
         if (shouldAutoPlay && !isChangingSong) {
-          console.log('Auto-playing next song');
+          console.log('Auto-playing next song:', currentSong.title);
           audioService.play();
           setPlaying(true);
         } else {
@@ -391,6 +413,13 @@ export default function MusicPlayer({
     }
     return <Repeat size={16} className="md:w-4 md:h-4" />;
   };
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const styleId = 'music-player-animations';

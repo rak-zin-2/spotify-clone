@@ -518,58 +518,65 @@ export default function Home() {
     return allSongs.map(s => s.title);
   }, [playingQueue, allSongs]);
 
-  // FIXED: Play next function - properly goes to the next song in queue
-  const playNext = useCallback(() => {
-    const currentQueue = getActualPlayingQueue();
-    console.log('playNext - Current index:', playingIndex, 'Queue length:', currentQueue.length, 'Current song:', currentQueue[playingIndex]);
-    
-    if (playingIndex < currentQueue.length - 1) {
-      // Go to next song in queue
-      const newIndex = playingIndex + 1;
-      const nextSong = currentQueue[newIndex];
-      console.log('Going to next song:', nextSong, 'at index:', newIndex);
-      setPlayingIndex(newIndex);
-      setPlayingSongTitle(nextSong);
-    } else if (playingContextType === 'all') {
-      // Loop back to first song
-      console.log('End of queue, looping to first song');
-      setPlayingIndex(0);
-      setPlayingSongTitle(currentQueue[0]);
-    } else {
-      // For playlists/liked/artist, loop back to first
-      console.log('Context end, looping to first song');
+// FIXED: Play next function - properly goes to the next song in queue
+const playNext = useCallback(() => {
+  const currentQueue = getActualPlayingQueue();
+  console.log('playNext - Current index:', playingIndex, 'Queue length:', currentQueue.length, 'Current song:', currentQueue[playingIndex]);
+  
+  if (playingIndex < currentQueue.length - 1) {
+    // Go to next song in queue
+    const newIndex = playingIndex + 1;
+    const nextSong = currentQueue[newIndex];
+    console.log('Going to next song:', nextSong, 'at index:', newIndex);
+    setPlayingIndex(newIndex);
+    setPlayingSongTitle(nextSong);
+  } else if (playingContextType === 'all') {
+    // Loop back to first song
+    console.log('End of queue, looping to first song');
+    setPlayingIndex(0);
+    setPlayingSongTitle(currentQueue[0]);
+  } else {
+    // For playlists/liked/artist, loop back to first
+    console.log('Context end, looping to first song');
+    if (currentQueue.length > 0) {
       setPlayingIndex(0);
       setPlayingSongTitle(currentQueue[0]);
     }
-  }, [playingIndex, playingContextType, getActualPlayingQueue]);
+  }
+}, [playingIndex, playingContextType, getActualPlayingQueue]);
 
-  // FIXED: Play previous function
-  const playPrevious = useCallback(() => {
-    const currentQueue = getActualPlayingQueue();
-    console.log('playPrevious - Current index:', playingIndex, 'Queue length:', currentQueue.length);
-    
-    if (playingIndex > 0) {
-      // Go to previous song in queue
-      const newIndex = playingIndex - 1;
-      const prevSong = currentQueue[newIndex];
-      console.log('Going to previous song:', prevSong, 'at index:', newIndex);
-      setPlayingIndex(newIndex);
-      setPlayingSongTitle(prevSong);
-    } else if (playingContextType === 'all') {
-      // Go to last song
-      const newIndex = currentQueue.length - 1;
+// FIXED: Play previous function
+const playPrevious = useCallback(() => {
+  const currentQueue = getActualPlayingQueue();
+  console.log('playPrevious - Current index:', playingIndex, 'Queue length:', currentQueue.length);
+  
+  if (playingIndex > 0) {
+    // Go to previous song in queue
+    const newIndex = playingIndex - 1;
+    const prevSong = currentQueue[newIndex];
+    console.log('Going to previous song:', prevSong, 'at index:', newIndex);
+    setPlayingIndex(newIndex);
+    setPlayingSongTitle(prevSong);
+  } else if (playingContextType === 'all') {
+    // Go to last song
+    const newIndex = currentQueue.length - 1;
+    if (newIndex >= 0) {
       const lastSong = currentQueue[newIndex];
       console.log('Beginning of queue, going to last song:', lastSong);
       setPlayingIndex(newIndex);
       setPlayingSongTitle(lastSong);
-    } else {
-      // For playlists/liked/artist, go to last
-      const newIndex = currentQueue.length - 1;
+    }
+  } else {
+    // For playlists/liked/artist, go to last
+    const newIndex = currentQueue.length - 1;
+    if (newIndex >= 0) {
       const lastSong = currentQueue[newIndex];
+      console.log('Context start, going to last song:', lastSong);
       setPlayingIndex(newIndex);
       setPlayingSongTitle(lastSong);
     }
-  }, [playingIndex, playingContextType, getActualPlayingQueue]);
+  }
+}, [playingIndex, playingContextType, getActualPlayingQueue]);
 
   // Play song - THIS IS THE ONLY PLACE THAT CHANGES PLAYBACK
   const playSong = useCallback((title: string, contextType: 'playlist' | 'liked' | 'artist' | 'all' = 'all', contextId?: string, contextSongs?: string[]) => {
