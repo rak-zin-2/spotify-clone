@@ -319,6 +319,14 @@ export default function MusicPlayer({
     return () => clearInterval(interval);
   }, []);
 
+  // ========== ADD THIS: Dispatch progress event for mini player ==========
+  useEffect(() => {
+    // Dispatch a custom event with the current progress for the mini player
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('musicPlayerProgress', { detail: { progress } }));
+    }
+  }, [progress]);
+
   const togglePlay = useCallback(() => {
     console.log('togglePlay called');
     setHasUserInteracted(true);

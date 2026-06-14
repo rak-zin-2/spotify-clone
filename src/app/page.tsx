@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import Sidebar from "@/components/Sidebar";
 import MusicPlayer from "@/components/MusicPlayer";
+import MiniMusicPlayer from "@/components/MiniMusicPlayer";  // <-- ADD THIS
 import PlaylistModal from "@/components/PlaylistModal";
 import PlaylistView from "@/components/PlaylistView";
 import AdminNotificationCenter from "@/components/AdminNotificationCenter";
@@ -18,6 +19,7 @@ import { useSupabaseSongs } from "@/hooks/useSupabaseSongs";
 import { useSupabaseArtists } from "@/hooks/useSupabaseArtists";
 
 import { Plus, Play, Disc3, ArrowLeft, Heart, Search as SearchIcon, X, ArrowUp, Upload, Trash2, Edit2, Save, ImageIcon, Mic, Check, Music } from "lucide-react";
+import { audioService } from "@/components/AudioService";  // <-- ADD THIS
 
 // Type for song
 type Song = {
@@ -497,6 +499,10 @@ export default function Home() {
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // ========== MINI MUSIC PLAYER STATE (ADD THIS) ==========
+  const [miniPlayerProgress, setMiniPlayerProgress] = useState(0);
+  const [isMiniPlayerPlaying, setIsMiniPlayerPlaying] = useState(false);
+
   // Hooks
   const { songs: supabaseSongs, loading: songsLoading, addSong: addSongToSupabase, deleteSong: deleteSongFromSupabase, refreshSongs, updateSong: updateSongInSupabase, uploadAudioFile, uploadCoverImage } = useSupabaseSongs();
   const { playlists, createPlaylist, addSongToPlaylist, removeSongFromPlaylist, renamePlaylist, deletePlaylist, refreshPlaylists } = useSupabasePlaylist();
@@ -505,6 +511,50 @@ export default function Home() {
   const { artists, refreshArtists, songBelongsToArtist } = useSupabaseArtists();
 
   const allSongs = supabaseSongs;
+
+  // ========== TRACK PROGRESS FOR MINI PLAYER (ADD THIS) ==========
+  useEffect(() => {
+    const updateProgress = () => {
+      const audio = audioService.getAudioElement();
+      if (audio && audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
+        setMiniPlayerProgress((audio.currentTime / audio.duration) * 100);
+      }
+    };
+    const interval = setInterval(updateProgress, 100);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ========== TRACK PLAYING STATE FOR MINI PLAYER (ADD THIS) ==========
+  useEffect(() => {
+    const audio = audioService.getAudioElement();
+    if (!audio) return;
+    const handlePlay = () => setIsMiniPlayerPlaying(true);
+    const handlePause = () => setIsMiniPlayerPlaying(false);
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    return () => {
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+    };
+  }, []);
+
+  // ========== HANDLE SEEK FROM MINI PLAYER (ADD THIS) ==========
+  const handleMiniPlayerSeek = useCallback((percent: number) => {
+    const audio = audioService.getAudioElement();
+    if (audio && audio.duration) {
+      audio.currentTime = percent * audio.duration;
+    }
+  }, []);
+
+  // ========== HANDLE TOGGLE PLAY FROM MINI PLAYER (ADD THIS) ==========
+  const handleMiniPlayerTogglePlay = useCallback(() => {
+    if (isMiniPlayerPlaying) {
+      audioService.pause();
+    } else {
+      audioService.resetUserPauseState();
+      audioService.play();
+    }
+  }, [isMiniPlayerPlaying]);
 
 // iOS Audio Activation - User interaction required for background audio on iOS
 useEffect(() => {
@@ -2059,6 +2109,17 @@ const playNext = useCallback(() => {
         currentQueue={playerQueue}
         onNext={playNext}
         onPrev={playPrevious}
+      />
+
+      {/* ========== MINI MUSIC PLAYER (ADD THIS) ========== */}
+      <MiniMusicPlayer
+        currentSong={musicPlayerCurrentSong}
+        isPlaying={isMiniPlayerPlaying}
+        onTogglePlay={handleMiniPlayerTogglePlay}
+        onNext={playNext}
+        onPrev={playPrevious}
+        progress={miniPlayerProgress}
+        onSeek={handleMiniPlayerSeek}
       />
 
       <AuthModal
