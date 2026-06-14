@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, SkipForward, SkipBack, X, ChevronUp, Minimize2, Maximize2, GripVertical } from "lucide-react";
+import { Play, Pause, SkipForward, SkipBack, ChevronUp, Minimize2, Maximize2, GripVertical } from "lucide-react";
 import { audioService } from "./AudioService";
 
 type Song = {
@@ -38,6 +38,7 @@ export default function DraggableMiniPlayer({
   const [position, setPosition] = useState({ x: 20, y: 100 });
   const [isVisible, setIsVisible] = useState(true);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   
   const dragRef = useRef<HTMLDivElement>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
@@ -45,8 +46,26 @@ export default function DraggableMiniPlayer({
   const positionRef = useRef({ x: 20, y: 100 });
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Check if mobile device - HIDE COMPLETELY ON MOBILE
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+      // If mobile, immediately hide and don't show
+      if (window.innerWidth < 768) {
+        setIsVisible(false);
+      } else {
+        setIsVisible(true);
+      }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   // Load saved position from localStorage
   useEffect(() => {
+    if (isMobile) return;
+    
     const savedPosition = localStorage.getItem('pavpav_mini_player_position');
     if (savedPosition) {
       try {
@@ -55,18 +74,14 @@ export default function DraggableMiniPlayer({
         positionRef.current = pos;
       } catch (e) {}
     }
-    
-    const savedVisibility = localStorage.getItem('pavpav_mini_player_visible');
-    if (savedVisibility !== null) {
-      setIsVisible(savedVisibility === 'true');
-    }
-  }, []);
+  }, [isMobile]);
 
   // Save position to localStorage
   const savePosition = useCallback((newPosition: { x: number; y: number }) => {
+    if (isMobile) return;
     localStorage.setItem('pavpav_mini_player_position', JSON.stringify(newPosition));
     positionRef.current = newPosition;
-  }, []);
+  }, [isMobile]);
 
   // Update local progress when prop changes
   useEffect(() => {
@@ -75,8 +90,10 @@ export default function DraggableMiniPlayer({
     }
   }, [progress, isDragging]);
 
-  // Auto-hide when scrolling
+  // Auto-hide when scrolling (only on desktop)
   useEffect(() => {
+    if (isMobile) return;
+    
     let lastScrollY = 0;
     let scrollTimeout: NodeJS.Timeout;
     
@@ -90,7 +107,6 @@ export default function DraggableMiniPlayer({
       }
       lastScrollY = currentScrollY;
       
-      // Show after scrolling stops
       clearTimeout(scrollTimeout);
       scrollTimeout = setTimeout(() => {
         setIsVisible(true);
@@ -102,10 +118,11 @@ export default function DraggableMiniPlayer({
       window.removeEventListener('scroll', handleScroll);
       clearTimeout(scrollTimeout);
     };
-  }, []);
+  }, [isMobile]);
 
-  // Handle drag functionality
+  // Handle drag functionality (only on desktop)
   const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
+    if (isMobile) return;
     setIsDragging(true);
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
@@ -166,12 +183,8 @@ export default function DraggableMiniPlayer({
     localStorage.setItem('pavpav_mini_player_minimized', String(!isMinimized));
   };
 
-  const closeMiniPlayer = () => {
-    setIsVisible(false);
-    localStorage.setItem('pavpav_mini_player_visible', 'false');
-  };
-
-  if (!currentSong?.title || !isVisible) return null;
+  // Don't show on mobile or if not visible
+  if (isMobile || !currentSong?.title || !isVisible) return null;
 
   return (
     <AnimatePresence>
@@ -202,7 +215,7 @@ export default function DraggableMiniPlayer({
           }`}
           style={{ cursor: 'default' }}
         >
-          {/* Drag Handle */}
+          {/* Drag Handle - No X button */}
           <div
             className="flex items-center justify-between px-3 pt-2 cursor-grab active:cursor-grabbing"
             onMouseDown={handleDragStart}
@@ -213,20 +226,16 @@ export default function DraggableMiniPlayer({
               <button
                 onClick={toggleMinimize}
                 className="p-1 rounded hover:bg-white/10 transition"
+                aria-label={isMinimized ? "Expand" : "Minimize"}
               >
                 {isMinimized ? <Maximize2 size={12} className="text-gray-400" /> : <Minimize2 size={12} className="text-gray-400" />}
               </button>
               <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="p-1 rounded hover:bg-white/10 transition"
+                aria-label={isExpanded ? "Collapse" : "Expand"}
               >
                 <ChevronUp size={12} className={`text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-              </button>
-              <button
-                onClick={closeMiniPlayer}
-                className="p-1 rounded hover:bg-white/10 transition"
-              >
-                <X size={12} className="text-gray-400" />
               </button>
             </div>
           </div>
