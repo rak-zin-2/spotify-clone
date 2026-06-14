@@ -12,6 +12,7 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
+import { audioService } from "./AudioService";
 
 type Song = {
   title: string;
@@ -56,6 +57,59 @@ export default function MusicPlayer({
   const [shuffledIndex, setShuffledIndex] = useState(0);
   const [isShuffled, setIsShuffled] = useState(false);
 
+  // Initialize audio service callbacks
+  useEffect(() => {
+    // Set up callbacks for lock screen controls
+    audioService.setNextCallback(() => {
+      handleNext();
+    });
+    
+    audioService.setPrevCallback(() => {
+      handlePrev();
+    });
+    
+    audioService.setOnEndCallback(() => {
+      handleSongEnd();
+    });
+    
+    // Sync audio element reference
+    if (audioRef.current) {
+      // The audio service already has its own audio element
+      // We'll sync the two
+      const syncAudio = () => {
+        if (audioRef.current && audioService.getAudioElement()) {
+          // Use the service's audio element for background playback
+          const serviceAudio = audioService.getAudioElement();
+          if (serviceAudio) {
+            serviceAudio.onvolumechange = () => {
+              if (audioRef.current) audioRef.current.volume = serviceAudio.volume;
+            };
+          }
+        }
+      };
+      syncAudio();
+    }
+  }, []);
+
+  // Sync audio element with service
+  useEffect(() => {
+    if (currentSong?.src) {
+      audioService.setSrc(currentSong.src);
+      audioService.updateMediaMetadata(currentSong.title, currentSong.artist, currentSong.cover);
+    }
+  }, [currentSong]);
+
+  // Sync volume
+  useEffect(() => {
+    audioService.setVolume(volume);
+  }, [volume]);
+
+  // Sync play state to media session
+  useEffect(() => {
+    audioService.setPlaybackState(playing);
+    audioService.updateMediaMetadata(currentSong.title, currentSong.artist, currentSong.cover);
+  }, [playing, currentSong]);
+
   // Generate new shuffled queue when shuffle is toggled on or queue changes
   useEffect(() => {
     if (shuffle && currentQueue.length > 0) {
@@ -96,9 +150,10 @@ export default function MusicPlayer({
   // Handle next song - FIXED for auto-play
   const handleNext = useCallback(() => {
     if (repeat === "one") {
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(() => {});
+      const audio = audioService.getAudioElement();
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
         setPlaying(true);
       }
       return;
@@ -137,9 +192,10 @@ export default function MusicPlayer({
   // Handle previous song
   const handlePrev = useCallback(() => {
     if (repeat === "one") {
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(() => {});
+      const audio = audioService.getAudioElement();
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
         setPlaying(true);
       }
       return;
@@ -165,8 +221,9 @@ export default function MusicPlayer({
           setCurrentIndex(originalIndex);
         }
       } else {
-        if (audioRef.current) {
-          audioRef.current.currentTime = 0;
+        const audio = audioService.getAudioElement();
+        if (audio) {
+          audio.currentTime = 0;
         }
       }
     } else {
@@ -177,9 +234,10 @@ export default function MusicPlayer({
   // Handle song end - FIXED to auto-play next
   const handleSongEnd = useCallback(() => {
     if (repeat === "one") {
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(() => {});
+      const audio = audioService.getAudioElement();
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
         setPlaying(true);
       }
     } else {
@@ -189,9 +247,8 @@ export default function MusicPlayer({
 
   // Load new song when currentSong changes
   useEffect(() => {
-    if (!audioRef.current || !currentSong?.src) return;
+    if (!currentSong?.src) return;
     
-    const audio = audioRef.current;
     const wasPlaying = playing;
     
     // Reset states for new song
@@ -199,108 +256,70 @@ export default function MusicPlayer({
     setIsLoading(true);
     setProgress(0);
     
-    // Only load if source changed
-    if (audio.src !== currentSong.src) {
-      audio.src = currentSong.src;
-      audio.load();
-    }
+    // Use audio service for background playback
+    audioService.setSrc(currentSong.src);
+    audioService.updateMediaMetadata(currentSong.title, currentSong.artist, currentSong.cover);
     
-    const handleCanPlayThrough = () => {
-      setAudioLoaded(true);
-      setIsLoading(false);
-      setIsChangingSong(false);
+    const serviceAudio = audioService.getAudioElement();
+    
+    if (serviceAudio) {
+      const handleCanPlayThrough = () => {
+        setAudioLoaded(true);
+        setIsLoading(false);
+        setIsChangingSong(false);
+        
+        // Auto-play only if user has interacted before OR was playing
+        if ((hasUserInteracted || wasPlaying) && !isChangingSong) {
+          audioService.play();
+          setPlaying(true);
+        } else {
+          setPlaying(false);
+        }
+        
+        serviceAudio.removeEventListener('canplaythrough', handleCanPlayThrough);
+      };
       
-      // Auto-play only if:
-      // 1. User has interacted before (not first load), OR
-      // 2. Was playing before song change
-      if ((hasUserInteracted || wasPlaying) && !isChangingSong) {
-        audio.play()
-          .then(() => setPlaying(true))
-          .catch((err) => {
-            console.error("Auto-play failed:", err);
-            setPlaying(false);
-          });
-      } else {
-        // Don't auto-play on first load
-        setPlaying(false);
-      }
-    };
-    
-    const handleError = (e: ErrorEvent) => {
-      console.error("Audio loading error for:", currentSong.title, e);
-      setIsLoading(false);
-      setAudioLoaded(false);
-      setIsChangingSong(false);
-    };
-    
-    const handlePlaying = () => {
-      setPlaying(true);
-    };
-    
-    const handlePause = () => {
-      setPlaying(false);
-    };
-    
-    audio.addEventListener('canplaythrough', handleCanPlayThrough);
-    audio.addEventListener('error', handleError);
-    audio.addEventListener('playing', handlePlaying);
-    audio.addEventListener('pause', handlePause);
-    
-    return () => {
-      audio.removeEventListener('canplaythrough', handleCanPlayThrough);
-      audio.removeEventListener('error', handleError);
-      audio.removeEventListener('playing', handlePlaying);
-      audio.removeEventListener('pause', handlePause);
-    };
-  }, [currentSong, hasUserInteracted, isChangingSong]);
+      const handleError = (e: Event) => {
+        console.error("Audio loading error for:", currentSong.title, e);
+        setIsLoading(false);
+        setAudioLoaded(false);
+        setIsChangingSong(false);
+      };
+      
+      serviceAudio.addEventListener('canplaythrough', handleCanPlayThrough);
+      serviceAudio.addEventListener('error', handleError);
+      
+      return () => {
+        serviceAudio.removeEventListener('canplaythrough', handleCanPlayThrough);
+        serviceAudio.removeEventListener('error', handleError);
+      };
+    }
+  }, [currentSong, hasUserInteracted, isChangingSong, playing]);
 
-  // Update volume when changed
+  // Update progress bar from audio service
   useEffect(() => {
-    if (!audioRef.current) return;
-    audioRef.current.volume = volume;
-  }, [volume]);
-
-  // Update progress bar
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
     const updateProgress = () => {
-      if (audio.duration && isFinite(audio.duration) && !isNaN(audio.duration)) {
+      const audio = audioService.getAudioElement();
+      if (audio && audio.duration && isFinite(audio.duration) && !isNaN(audio.duration)) {
         setProgress((audio.currentTime / audio.duration) * 100 || 0);
-      } else {
-        setProgress(0);
       }
     };
-
-    audio.addEventListener("timeupdate", updateProgress);
-    audio.addEventListener("loadedmetadata", updateProgress);
-    return () => {
-      audio.removeEventListener("timeupdate", updateProgress);
-      audio.removeEventListener("loadedmetadata", updateProgress);
-    };
+    
+    const interval = setInterval(updateProgress, 100);
+    return () => clearInterval(interval);
   }, []);
 
   const togglePlay = useCallback(() => {
-    if (!audioRef.current) return;
-    if (!audioLoaded && isLoading) return;
-    
     setHasUserInteracted(true);
     
     if (playing) {
-      audioRef.current.pause();
+      audioService.pause();
       setPlaying(false);
     } else {
-      audioRef.current.play()
-        .then(() => {
-          setPlaying(true);
-        })
-        .catch((err) => {
-          console.error("Play failed:", err);
-          setPlaying(false);
-        });
+      audioService.play();
+      setPlaying(true);
     }
-  }, [playing, audioLoaded, isLoading]);
+  }, [playing]);
 
   const toggleMute = useCallback(() => {
     if (volume > 0) {
@@ -327,19 +346,21 @@ export default function MusicPlayer({
   };
 
   const seekAudio = useCallback((clientX: number, rect: DOMRect) => {
-    if (!audioRef.current) return;
-    const duration = audioRef.current.duration;
+    const audio = audioService.getAudioElement();
+    if (!audio) return;
+    
+    const duration = audio.duration;
     if (!duration || isNaN(duration) || !isFinite(duration)) return;
     
     const percent = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
     const newTime = percent * duration;
     if (isFinite(newTime) && !isNaN(newTime)) {
-      audioRef.current.currentTime = newTime;
+      audioService.setCurrentTime(newTime);
     }
   }, []);
 
-  const currentTime = audioRef.current?.currentTime || 0;
-  const duration = audioRef.current?.duration || 0;
+  const currentTime = audioService.getCurrentTime();
+  const duration = audioService.getDuration();
   const isValidDuration = duration && isFinite(duration) && !isNaN(duration);
 
   const getRepeatIcon = () => {
@@ -534,14 +555,6 @@ export default function MusicPlayer({
           <h3 className="font-medium text-xs truncate text-white">{currentSong.title}</h3>
           <p className="text-blue-300/70 text-[10px] truncate">{currentSong.artist}</p>
         </div>
-
-        <audio
-          ref={audioRef}
-          onEnded={handleSongEnd}
-          onLoadedMetadata={() => {
-            setProgress(0);
-          }}
-        />
       </div>
     </div>
   );

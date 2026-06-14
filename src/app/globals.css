@@ -463,3 +463,19 @@ aside .overflow-y-auto::-webkit-scrollbar-thumb:hover {
 .pr-safe {
   padding-right: env(safe-area-inset-right);
 }
+/* Ensure audio continues playing on lock screen */
+audio {
+  display: none;
+}
+
+/* Fix for iOS background audio */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    --safe-area-inset-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Prevent iOS from suspending audio */
+body {
+  -webkit-tap-highlight-color: transparent;
+}
