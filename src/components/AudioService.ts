@@ -13,6 +13,9 @@ class AudioService {
   private backgroundPlaybackEnabled = true;
   private wakeLock: any = null;
   private audioContext: AudioContext | null = null;
+  private isLoading = false;
+  private loadTimeout: NodeJS.Timeout | null = null;
+  private isSwitchingSong = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -58,6 +61,8 @@ class AudioService {
     
     this.audioElement.onended = () => {
       console.log('[AudioService] Audio ended');
+      this.isLoading = false;
+      this.isSwitchingSong = false;
       if (this.onEndCallback) {
         this.onEndCallback();
       }
@@ -65,10 +70,26 @@ class AudioService {
     
     this.audioElement.oncanplay = () => {
       console.log('[AudioService] Can play');
+      this.isLoading = false;
+      this.isSwitchingSong = false;
+    };
+    
+    this.audioElement.oncanplaythrough = () => {
+      console.log('[AudioService] Can play through');
+      this.isLoading = false;
+      this.isSwitchingSong = false;
+    };
+    
+    this.audioElement.onloadeddata = () => {
+      console.log('[AudioService] Data loaded');
+      this.isLoading = false;
+      this.isSwitchingSong = false;
     };
     
     this.audioElement.onerror = (e) => {
       console.error('[AudioService] Audio error:', e);
+      this.isLoading = false;
+      this.isSwitchingSong = false;
       if (this.retryCount < this.maxRetries) {
         this.retryCount++;
         setTimeout(() => {
@@ -222,10 +243,14 @@ class AudioService {
       
       this.currentSrc = src;
       this.nextSrc = null;
+      this.isLoading = false;
+      this.isSwitchingSong = false;
       this.setupAudioElementEvents();
       
       if (wasPlaying && this.audioElement) {
-        this.audioElement.play().catch(e => console.error('Play after swap failed:', e));
+        setTimeout(() => {
+          this.audioElement?.play().catch(e => console.error('Play after swap failed:', e));
+        }, 50);
       }
       
       return true;
@@ -240,7 +265,7 @@ class AudioService {
     const position = this.audioElement.currentTime;
     const playbackRate = this.audioElement.playbackRate;
     
-    if (duration && isFinite(duration) && !isNaN(duration)) {
+    if (duration && isFinite(duration) && !isNaN(duration) && duration > 0) {
       try {
         (navigator.mediaSession as any).setPositionState({
           duration: duration,
@@ -394,12 +419,20 @@ class AudioService {
     this.onEndCallback = callback;
   }
 
+  // FIXED: setSrc with proper loading state management
   setSrc(src: string, skipPreloadCheck: boolean = false) {
     if (!src || src === '') {
       console.error('[AudioService] Invalid audio source');
       return;
     }
     
+    // Clear any existing timeout
+    if (this.loadTimeout) {
+      clearTimeout(this.loadTimeout);
+      this.loadTimeout = null;
+    }
+    
+    // Try to use preloaded song first
     if (!skipPreloadCheck && this.switchToPreloaded(src)) {
       return;
     }
@@ -407,27 +440,53 @@ class AudioService {
     console.log('[AudioService] Setting audio source:', src.substring(0, 80));
     this.currentSrc = src;
     this.retryCount = 0;
+    this.isLoading = true;
+    this.isSwitchingSong = true;
     
     if (!this.audioElement) return;
     
     const wasPlaying = !this.audioElement.paused;
+    const savedTime = this.audioElement.currentTime;
     
+    // Set new source
     this.audioElement.src = src;
     this.audioElement.load();
     this.updatePositionState();
     
+    // Set a timeout to clear loading state if it takes too long
+    this.loadTimeout = setTimeout(() => {
+      console.log('[AudioService] Loading timeout, clearing loading state');
+      this.isLoading = false;
+      this.isSwitchingSong = false;
+      this.loadTimeout = null;
+    }, 3000);
+    
+    // Auto-play if it was playing before
     if (wasPlaying && !this.isUserPaused) {
       const tryPlay = () => {
         if (this.audioElement && this.audioElement.readyState >= 2) {
+          console.log('[AudioService] Auto-playing after load');
           this.audioElement.play().catch(e => console.error('Auto-play failed:', e));
-          this.audioElement.removeEventListener('canplay', tryPlay);
+          this.isLoading = false;
+          this.isSwitchingSong = false;
+          this.audioElement.removeEventListener('canplaythrough', tryPlay);
         }
       };
-      this.audioElement.addEventListener('canplay', tryPlay);
-      setTimeout(tryPlay, 300);
+      this.audioElement.addEventListener('canplaythrough', tryPlay);
+      // Also try after a short delay as fallback
+      setTimeout(tryPlay, 500);
+    } else {
+      // Still need to clear loading state even if not playing
+      setTimeout(() => {
+        if (this.isLoading) {
+          this.isLoading = false;
+          this.isSwitchingSong = false;
+        }
+      }, 1000);
     }
   }
 
+  // FIXED: play with better error handling
   play() {
     if (!this.audioElement) return;
     
@@ -441,18 +500,12 @@ class AudioService {
       this.audioContext.resume().catch(e => console.log('AudioContext resume failed:', e));
     }
     
-    if (this.audioElement.readyState < 2) {
-      console.log('[AudioService] Audio not ready, waiting...');
-      const onCanPlay = () => {
-        if (this.audioElement && !this.audioElement.paused === false) {
-          this.audioElement.play().catch(e => console.error('Play failed:', e));
-        }
-        if (this.audioElement) {
-          this.audioElement.removeEventListener('canplay', onCanPlay);
-        }
-      };
-      this.audioElement.addEventListener('canplay', onCanPlay);
-      return;
+    // Clear loading state when attempting to play
+    this.isLoading = false;
+    
+    // If audio is already at the end, reset to beginning
+    if (this.audioElement.currentTime >= this.audioElement.duration && this.audioElement.duration > 0) {
+      this.audioElement.currentTime = 0;
     }
     
     const playPromise = this.audioElement.play();
@@ -469,6 +522,8 @@ class AudioService {
           // On iOS, user interaction might be needed first time
           if (error.name === 'NotAllowedError') {
             console.log('[AudioService] User interaction needed first');
+          } else if (error.name === 'NotSupportedError') {
+            console.error('[AudioService] Audio format not supported');
           }
         });
     }
@@ -515,6 +570,11 @@ class AudioService {
   resetUserPauseState() {
     this.isUserPaused = false;
   }
+  
+  // Add method to check loading state
+  isLoadingState(): boolean {
+    return this.isLoading;
+  }
 
   updateMediaMetadata(title: string, artist: string, artworkUrl: string) {
     this.currentTitle = title;
@@ -560,6 +620,9 @@ class AudioService {
   }
   
   destroy() {
+    if (this.loadTimeout) {
+      clearTimeout(this.loadTimeout);
+    }
     if (this.wakeLock) {
       this.wakeLock.release();
     }

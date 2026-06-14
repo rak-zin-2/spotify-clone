@@ -46,7 +46,7 @@ export default function MusicPlayer({
   const [progress, setProgress] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [previousVolume, setPreviousVolume] = useState(0.8);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   
@@ -56,18 +56,18 @@ export default function MusicPlayer({
 
   const isMounted = useRef(true);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const songChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Preload next song when current song changes
   useEffect(() => {
     if (!currentQueue.length || currentIndex === undefined) return;
     
-    // Calculate next song index
     let nextIndex = currentIndex + 1;
     if (nextIndex >= currentQueue.length) {
       if (repeat === "all") {
         nextIndex = 0;
       } else {
-        return; // Don't preload if no next song
+        return;
       }
     }
     
@@ -173,7 +173,11 @@ export default function MusicPlayer({
     
     if (!isMounted.current) return;
     
-    setTimeout(() => {
+    if (songChangeTimeoutRef.current) {
+      clearTimeout(songChangeTimeoutRef.current);
+    }
+    
+    songChangeTimeoutRef.current = setTimeout(() => {
       if (!isMounted.current) return;
       
       if (repeat === "one") {
@@ -186,7 +190,7 @@ export default function MusicPlayer({
       } else {
         handleNext();
       }
-    }, 10); // Reduced delay for faster transition
+    }, 50);
   }, [repeat, handleNext]);
 
   // Initialize audio service callbacks
@@ -223,29 +227,86 @@ export default function MusicPlayer({
     }
   }, [currentSong]);
 
-  // Preload image for lock screen
+  // Sync audio source with loading state management
   useEffect(() => {
-    if (currentSong?.cover) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        audioService.updateMediaMetadata(
-          currentSong.title,
-          currentSong.artist,
-          currentSong.cover
-        );
-      };
-      img.src = currentSong.cover;
-    }
+    if (!currentSong?.src) return;
+    
+    console.log('[MusicPlayer] Setting up audio for:', currentSong.title);
+    
+    // Reset loading states
+    setIsLoading(true);
+    setAudioLoaded(false);
+    setProgress(0);
+    
+    // Set the source
+    audioService.setSrc(currentSong.src);
+    
+    // Check loading state periodically
+    const checkInterval = setInterval(() => {
+      const audio = audioService.getAudioElement();
+      if (audio && audio.readyState >= 2) {
+        setAudioLoaded(true);
+        setIsLoading(false);
+        clearInterval(checkInterval);
+      }
+    }, 100);
+    
+    // Timeout to force clear loading
+    const timeout = setTimeout(() => {
+      setIsLoading(false);
+      setAudioLoaded(true);
+      clearInterval(checkInterval);
+    }, 2000);
+    
+    return () => {
+      clearInterval(checkInterval);
+      clearTimeout(timeout);
+    };
   }, [currentSong]);
 
-  // Sync audio source
+  // Sync play/pause state with audio element
   useEffect(() => {
-    if (currentSong?.src && isMounted.current) {
-      console.log('[MusicPlayer] Setting audio source for:', currentSong.title);
-      audioService.setSrc(currentSong.src);
-    }
-  }, [currentSong]);
+    const audio = audioService.getAudioElement();
+    if (!audio) return;
+    
+    const handlePlay = () => {
+      if (isMounted.current) {
+        setPlaying(true);
+        setIsLoading(false);
+      }
+    };
+    
+    const handlePause = () => {
+      if (isMounted.current) {
+        setPlaying(false);
+      }
+    };
+    
+    const handleWaiting = () => {
+      if (isMounted.current) {
+        setIsLoading(true);
+      }
+    };
+    
+    const handlePlaying = () => {
+      if (isMounted.current) {
+        setIsLoading(false);
+        setPlaying(true);
+      }
+    };
+    
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('waiting', handleWaiting);
+    audio.addEventListener('playing', handlePlaying);
+    
+    return () => {
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('waiting', handleWaiting);
+      audio.removeEventListener('playing', handlePlaying);
+    };
+  }, []);
 
   // Sync volume
   useEffect(() => {
@@ -278,64 +339,6 @@ export default function MusicPlayer({
     }
   }, [shuffle, currentQueue, currentIndex]);
 
-  // Load new song state - faster loading
-  useEffect(() => {
-    if (!currentSong?.src) return;
-    
-    const wasPlaying = playing;
-    console.log('[MusicPlayer] Loading song:', currentSong.title);
-    
-    setAudioLoaded(false);
-    setIsLoading(true);
-    setProgress(0);
-    
-    const serviceAudio = audioService.getAudioElement();
-    
-    if (serviceAudio) {
-      // Use canplaythrough for faster loading (less buffering needed)
-      const handleCanPlay = () => {
-        setAudioLoaded(true);
-        setIsLoading(false);
-        
-        if ((hasUserInteracted || wasPlaying) && !audioService.isUserPausedState()) {
-          audioService.play();
-          setPlaying(true);
-        } else {
-          setPlaying(false);
-        }
-        
-        serviceAudio.removeEventListener('canplaythrough', handleCanPlay);
-      };
-      
-      const handleError = (e: Event) => {
-        console.error("[MusicPlayer] Audio error:", e);
-        setIsLoading(false);
-      };
-      
-      serviceAudio.addEventListener('canplaythrough', handleCanPlay);
-      serviceAudio.addEventListener('error', handleError);
-      
-      // Fallback timeout - if it takes too long, just try to play
-      const timeout = setTimeout(() => {
-        if (isLoading) {
-          console.log('[MusicPlayer] Loading timeout, forcing play');
-          setIsLoading(false);
-          setAudioLoaded(true);
-          if ((hasUserInteracted || wasPlaying) && !audioService.isUserPausedState()) {
-            audioService.play();
-            setPlaying(true);
-          }
-        }
-      }, 500);
-      
-      return () => {
-        serviceAudio.removeEventListener('canplaythrough', handleCanPlay);
-        serviceAudio.removeEventListener('error', handleError);
-        clearTimeout(timeout);
-      };
-    }
-  }, [currentSong, hasUserInteracted, playing, isLoading]);
-
   // Update progress bar
   useEffect(() => {
     if (progressIntervalRef.current) {
@@ -344,8 +347,9 @@ export default function MusicPlayer({
     
     progressIntervalRef.current = setInterval(() => {
       const audio = audioService.getAudioElement();
-      if (audio && audio.duration && isFinite(audio.duration) && !isNaN(audio.duration) && !audio.paused) {
-        setProgress((audio.currentTime / audio.duration) * 100 || 0);
+      if (audio && audio.duration && isFinite(audio.duration) && !isNaN(audio.duration) && audio.duration > 0 && !audio.paused) {
+        const newProgress = (audio.currentTime / audio.duration) * 100;
+        setProgress(newProgress || 0);
       }
     }, 100);
     
@@ -357,6 +361,7 @@ export default function MusicPlayer({
   }, []);
 
   const togglePlay = useCallback(() => {
+    console.log('[MusicPlayer] togglePlay called');
     setHasUserInteracted(true);
     
     if (playing) {
@@ -365,7 +370,7 @@ export default function MusicPlayer({
     } else {
       audioService.resetUserPauseState();
       audioService.play();
-      setPlaying(true);
+      // Don't set playing here - let the audio element's play event handle it
     }
   }, [playing]);
 
@@ -398,7 +403,7 @@ export default function MusicPlayer({
     if (!audio) return;
     
     const duration = audio.duration;
-    if (!duration || isNaN(duration) || !isFinite(duration)) return;
+    if (!duration || isNaN(duration) || !isFinite(duration) || duration <= 0) return;
     
     const percent = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
     const newTime = percent * duration;
@@ -415,12 +420,18 @@ export default function MusicPlayer({
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
       }
+      if (songChangeTimeoutRef.current) {
+        clearTimeout(songChangeTimeoutRef.current);
+      }
     };
   }, []);
 
   const currentTime = audioService.getCurrentTime();
   const duration = audioService.getDuration();
-  const isValidDuration = duration && isFinite(duration) && !isNaN(duration);
+  const isValidDuration = duration && isFinite(duration) && !isNaN(duration) && duration > 0;
+
+  // Don't show loading spinner unnecessarily
+  const showLoading = isLoading && !audioLoaded;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto">
@@ -465,7 +476,7 @@ export default function MusicPlayer({
             <div
               className="flex-shrink-0"
               style={{
-                animation: playing && audioLoaded && !isLoading ? "spin 4s linear infinite" : "none",
+                animation: playing && !showLoading ? "spin 4s linear infinite" : "none",
               }}
             >
               <div className="w-8 h-8 md:w-10 md:h-10 rounded-full overflow-hidden shadow-lg ring-2 ring-blue-500/30">
@@ -501,10 +512,10 @@ export default function MusicPlayer({
             
             <button
               onClick={togglePlay}
-              disabled={isLoading}
+              disabled={showLoading}
               className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition-all duration-200 flex items-center justify-center shadow-lg shadow-blue-500/30 flex-shrink-0 disabled:opacity-50"
             >
-              {isLoading ? (
+              {showLoading ? (
                 <div className="w-4 h-4 md:w-5 md:h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : playing ? (
                 <Pause size={18} className="md:w-5 md:h-5 text-white" />
