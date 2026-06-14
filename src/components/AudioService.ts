@@ -53,7 +53,6 @@ class AudioService {
       console.log('[AudioService] Audio ended');
       this.isLoading = false;
       if (this.onEndCallback) {
-        console.log('[AudioService] Calling onEndCallback');
         this.onEndCallback();
       }
     };
@@ -86,25 +85,37 @@ class AudioService {
   private setupBackgroundPlayback() {
     if (typeof window === 'undefined') return;
     
-    try {
-      // @ts-ignore
-      window.AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (window.AudioContext) {
-        this.audioContext = new AudioContext();
-        this.audioContext.suspend();
+    // Prevent background throttling - keep audio alive
+    const keepAlive = () => {
+      if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
+        if (!this.audioContext) {
+          try {
+            // @ts-ignore
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (window.AudioContext) {
+              this.audioContext = new AudioContext();
+            }
+          } catch (e) {}
+        }
+        
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+          this.audioContext.resume().catch(() => {});
+        }
       }
-    } catch (e) {
-      console.log('[AudioService] AudioContext not supported');
-    }
+    };
     
-    this.setupWakeLock();
+    // Run keepAlive every 5 seconds when playing
+    setInterval(keepAlive, 5000);
     
+    // Handle visibility changes
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
         console.log('[AudioService] App in background, continuing playback');
+        this.audioElement.play().catch(() => {});
       }
     });
     
+    // Handle page hide (when app is backgrounded)
     window.addEventListener('pagehide', () => {
       if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
         localStorage.setItem('pavpav_was_playing', 'true');
@@ -119,6 +130,8 @@ class AudioService {
         localStorage.removeItem('pavpav_was_playing');
       }
     });
+    
+    this.setupWakeLock();
   }
 
   private setupWakeLock() {
@@ -186,6 +199,7 @@ class AudioService {
   private setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
     
+    // These are FULL SKIP buttons (previous/next track), not 10-second skips
     navigator.mediaSession.setActionHandler('play', () => {
       console.log('[AudioService] Lock screen: Play');
       this.isUserPaused = false;
@@ -199,15 +213,16 @@ class AudioService {
     });
     
     navigator.mediaSession.setActionHandler('previoustrack', () => {
-      console.log('[AudioService] Lock screen: Previous');
+      console.log('[AudioService] Lock screen: Previous track');
       if (this.onPrevCallback) this.onPrevCallback();
     });
     
     navigator.mediaSession.setActionHandler('nexttrack', () => {
-      console.log('[AudioService] Lock screen: Next');
+      console.log('[AudioService] Lock screen: Next track');
       if (this.onNextCallback) this.onNextCallback();
     });
     
+    // These are optional 15-second skips (some lock screens show them)
     navigator.mediaSession.setActionHandler('seekforward', (details) => {
       if (this.audioElement && this.audioElement.duration) {
         const seekTime = (details.seekOffset || 15);
@@ -255,7 +270,6 @@ class AudioService {
   }
 
   setOnEndCallback(callback: () => void) {
-    console.log('[AudioService] Setting onEndCallback');
     this.onEndCallback = callback;
   }
 
@@ -288,7 +302,6 @@ class AudioService {
       this.loadTimeout = null;
     }, 3000);
     
-    // Auto-play if it was playing before (for seamless transition)
     if (wasPlaying && !this.isUserPaused) {
       console.log('[AudioService] Auto-playing after load');
       const tryPlay = () => {
@@ -303,7 +316,6 @@ class AudioService {
       this.audioElement.addEventListener('canplaythrough', tryPlay);
       setTimeout(tryPlay, 300);
     } else {
-      console.log('[AudioService] Not auto-playing (wasPlaying=false or user paused)');
       setTimeout(() => {
         if (this.isLoading) {
           this.isLoading = false;
@@ -378,7 +390,6 @@ class AudioService {
   }
   
   resetUserPauseState() {
-    console.log('[AudioService] Resetting user pause state');
     this.isUserPaused = false;
   }
 
