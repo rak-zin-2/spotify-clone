@@ -59,6 +59,17 @@ export default function MusicPlayer({
 
   // Mini player visibility state
   const [showMiniPlayer, setShowMiniPlayer] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check if mobile device
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // THIS IS THE KEY FUNCTION - handles next song (used by both skip button AND song end)
   const goToNextSong = useCallback(() => {
@@ -331,10 +342,9 @@ export default function MusicPlayer({
     }
   }, [progress]);
 
-  // Toggle mini player visibility
+  // Toggle mini player visibility and dispatch event
   const toggleMiniPlayer = useCallback(() => {
     setShowMiniPlayer(prev => !prev);
-    // Dispatch event to notify page component
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('toggleMiniPlayer', { detail: { visible: !showMiniPlayer } }));
     }
@@ -544,21 +554,23 @@ export default function MusicPlayer({
           </div>
 
           <div className="hidden lg:flex items-center gap-2 justify-end">
-            {/* Mini Player Toggle Button */}
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={toggleMiniPlayer}
-              className="p-1.5 md:p-2 rounded-full hover:bg-white/10 transition"
-              aria-label={showMiniPlayer ? "Hide Mini Player" : "Show Mini Player"}
-              title={showMiniPlayer ? "Hide Mini Player" : "Show Mini Player"}
-            >
-              {showMiniPlayer ? (
-                <Minimize2 size={14} className="text-blue-400" />
-              ) : (
-                <Maximize2 size={14} className="text-blue-400" />
-              )}
-            </motion.button>
+            {/* Mini Player Toggle Button - Only show on desktop (lg breakpoint) */}
+            {!isMobile && (
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={toggleMiniPlayer}
+                className="p-1.5 md:p-2 rounded-full hover:bg-white/10 transition"
+                aria-label={showMiniPlayer ? "Hide Mini Player" : "Show Mini Player"}
+                title={showMiniPlayer ? "Hide Mini Player" : "Show Mini Player"}
+              >
+                {showMiniPlayer ? (
+                  <Minimize2 size={14} className="text-blue-400" />
+                ) : (
+                  <Maximize2 size={14} className="text-blue-400" />
+                )}
+              </motion.button>
+            )}
 
             <motion.button
               whileHover={{ scale: 1.1 }}
