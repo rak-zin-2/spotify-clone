@@ -506,24 +506,35 @@ export default function Home() {
 
   const allSongs = supabaseSongs;
 
-  // iOS Audio Activation - User interaction required for background audio on iOS
-  useEffect(() => {
-    // iOS requires user interaction before audio can play in background
-    const handleUserInteraction = () => {
-      activateIOSAudio();
-      // Remove listeners after first interaction
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-    };
+// iOS Audio Activation - User interaction required for background audio on iOS
+useEffect(() => {
+  const handleUserInteraction = () => {
+    // Create and play silent audio to activate audio session
+    const silentAudio = new Audio();
+    silentAudio.volume = 0;
+    silentAudio.play().catch(() => {});
     
-    document.addEventListener('click', handleUserInteraction);
-    document.addEventListener('touchstart', handleUserInteraction);
+    // Also initialize AudioContext
+    if (typeof window !== 'undefined') {
+      const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        const ctx = new AudioContextClass();
+        ctx.resume().catch(() => {});
+      }
+    }
     
-    return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-    };
-  }, []);
+    document.removeEventListener('click', handleUserInteraction);
+    document.removeEventListener('touchstart', handleUserInteraction);
+  };
+  
+  document.addEventListener('click', handleUserInteraction);
+  document.addEventListener('touchstart', handleUserInteraction);
+  
+  return () => {
+    document.removeEventListener('click', handleUserInteraction);
+    document.removeEventListener('touchstart', handleUserInteraction);
+  };
+}, []);
 
   // Helper functions
   const getSongsForArtistByName = useCallback((artistName: string): Song[] => {

@@ -14,11 +14,13 @@ class AudioService {
   private audioContext: AudioContext | null = null;
   private isLoading = false;
   private loadTimeout: NodeJS.Timeout | null = null;
+  private backgroundKeepAliveInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
       this.init();
       this.setupBackgroundPlayback();
+      this.setupPWABackgroundPlayback();
     }
   }
 
@@ -28,6 +30,9 @@ class AudioService {
     this.audioElement.preload = 'auto';
     this.audioElement.setAttribute('playsinline', 'true');
     this.audioElement.setAttribute('webkit-playsinline', 'true');
+    
+    // Critical for iOS background audio
+    this.audioElement.setAttribute('x-webkit-airplay', 'allow');
     
     if ('audioSession' in this.audioElement) {
       (this.audioElement as any).audioSession.type = 'playback';
@@ -82,54 +87,96 @@ class AudioService {
     };
   }
 
-  private setupBackgroundPlayback() {
+  private setupPWABackgroundPlayback() {
     if (typeof window === 'undefined') return;
     
-    // Prevent background throttling - keep audio alive
-    const keepAlive = () => {
+    // Prevent the service worker from stopping audio
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then((registration) => {
+        console.log('[AudioService] Service worker ready, keeping audio alive');
+      });
+    }
+    
+    // Keep audio alive when app is in background
+    const keepAudioAlive = () => {
       if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
-        if (!this.audioContext) {
-          try {
-            // @ts-ignore
-            window.AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (window.AudioContext) {
-              this.audioContext = new AudioContext();
-            }
-          } catch (e) {}
-        }
-        
-        if (this.audioContext && this.audioContext.state === 'suspended') {
-          this.audioContext.resume().catch(() => {});
-        }
+        console.log('[AudioService] Keeping audio alive in background');
+        // Touch the audio element to keep it active
+        this.audioElement.play().catch(() => {});
       }
     };
     
-    // Run keepAlive every 5 seconds when playing
-    setInterval(keepAlive, 5000);
+    // Run keep alive every 3 seconds
+    this.backgroundKeepAliveInterval = setInterval(keepAudioAlive, 3000);
     
-    // Handle visibility changes
+    // Handle page visibility - CRITICAL for background playback
     document.addEventListener('visibilitychange', () => {
+      console.log('[AudioService] Visibility changed:', document.hidden ? 'hidden' : 'visible');
+      
       if (document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
-        console.log('[AudioService] App in background, continuing playback');
-        this.audioElement.play().catch(() => {});
+        console.log('[AudioService] App hidden, continuing background playback');
+        // Force keep audio playing in background
+        this.audioElement.play().catch((e) => console.error('Background play failed:', e));
       }
     });
     
-    // Handle page hide (when app is backgrounded)
+    // Handle page hide (when app is closed/swiped away)
     window.addEventListener('pagehide', () => {
+      console.log('[AudioService] Page hiding, storing playing state');
       if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
         localStorage.setItem('pavpav_was_playing', 'true');
+        localStorage.setItem('pavpav_playing_song', this.currentSrc);
+        localStorage.setItem('pavpav_playing_time', String(this.audioElement.currentTime));
       }
     });
     
-    window.addEventListener('pageshow', () => {
+    // Handle page show (when app is reopened)
+    window.addEventListener('pageshow', (event) => {
+      console.log('[AudioService] Page showing, persisted:', event.persisted);
+      
       const wasPlaying = localStorage.getItem('pavpav_was_playing') === 'true';
-      if (wasPlaying && this.audioElement && this.audioElement.paused && !this.isUserPaused) {
-        console.log('[AudioService] Page showing, resuming playback');
-        this.play();
+      const savedSrc = localStorage.getItem('pavpav_playing_song');
+      
+      if (wasPlaying && savedSrc && this.audioElement && this.audioElement.paused) {
+        console.log('[AudioService] Resuming playback after page show');
+        this.audioElement.src = savedSrc;
+        this.audioElement.load();
+        setTimeout(() => {
+          this.audioElement?.play().catch(e => console.error('Resume play failed:', e));
+        }, 100);
         localStorage.removeItem('pavpav_was_playing');
+        localStorage.removeItem('pavpav_playing_song');
+        localStorage.removeItem('pavpav_playing_time');
       }
     });
+    
+    // Handle beforeunload to keep audio alive
+    window.addEventListener('beforeunload', () => {
+      if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
+        console.log('[AudioService] Before unload, ensuring audio continues');
+      }
+    });
+  }
+
+  private setupBackgroundPlayback() {
+    if (typeof window === 'undefined') return;
+    
+    // Create silent AudioContext to keep audio session alive
+    try {
+      // @ts-ignore
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        this.audioContext = new AudioContextClass();
+        // Create silent gain node to keep context active
+        const gain = this.audioContext.createGain();
+        gain.gain.value = 0;
+        gain.connect(this.audioContext.destination);
+        // Keep context suspended until needed
+        this.audioContext.suspend();
+      }
+    } catch (e) {
+      console.log('[AudioService] AudioContext not supported');
+    }
     
     this.setupWakeLock();
   }
@@ -199,7 +246,8 @@ class AudioService {
   private setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
     
-    // These are FULL SKIP buttons (previous/next track), not 10-second skips
+    console.log('[AudioService] Setting up MediaSession controls');
+    
     navigator.mediaSession.setActionHandler('play', () => {
       console.log('[AudioService] Lock screen: Play');
       this.isUserPaused = false;
@@ -222,7 +270,6 @@ class AudioService {
       if (this.onNextCallback) this.onNextCallback();
     });
     
-    // These are optional 15-second skips (some lock screens show them)
     navigator.mediaSession.setActionHandler('seekforward', (details) => {
       if (this.audioElement && this.audioElement.duration) {
         const seekTime = (details.seekOffset || 15);
@@ -253,6 +300,27 @@ class AudioService {
         }
       });
     } catch (e) {}
+    
+    // Re-register handlers when app comes to foreground
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && 'mediaSession' in navigator) {
+        console.log('[AudioService] App visible, re-registering media session handlers');
+        navigator.mediaSession.setActionHandler('play', () => {
+          this.isUserPaused = false;
+          this.play();
+        });
+        navigator.mediaSession.setActionHandler('pause', () => {
+          this.isUserPaused = true;
+          this.pause();
+        });
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+          if (this.onPrevCallback) this.onPrevCallback();
+        });
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+          if (this.onNextCallback) this.onNextCallback();
+        });
+      }
+    });
   }
 
   private onNextCallback: (() => void) | null = null;
@@ -332,6 +400,7 @@ class AudioService {
       return;
     }
     
+    // Resume AudioContext if suspended
     if (this.audioContext && this.audioContext.state === 'suspended') {
       this.audioContext.resume().catch(e => console.log('AudioContext resume failed:', e));
     }
@@ -348,6 +417,12 @@ class AudioService {
         })
         .catch(error => {
           console.error('[AudioService] Play failed:', error);
+          // Try again after short delay for iOS
+          if (error.name === 'NotAllowedError') {
+            setTimeout(() => {
+              this.audioElement?.play().catch(() => {});
+            }, 100);
+          }
         });
     }
   }
@@ -420,6 +495,9 @@ class AudioService {
         album: 'PavPav',
         artwork: artwork
       });
+      
+      // Force update position state
+      this.updatePositionState();
     }
   }
 
@@ -436,6 +514,9 @@ class AudioService {
   destroy() {
     if (this.loadTimeout) {
       clearTimeout(this.loadTimeout);
+    }
+    if (this.backgroundKeepAliveInterval) {
+      clearInterval(this.backgroundKeepAliveInterval);
     }
     if (this.wakeLock) {
       this.wakeLock.release();

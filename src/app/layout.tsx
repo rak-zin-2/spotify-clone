@@ -6,6 +6,7 @@ import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import UpdateNotification from "@/components/UpdateNotification";
 import SplashScreen from "@/components/SplashScreen";
 
+
 export const metadata: Metadata = {
   title: "PavPav - Music Streaming",
   description: "Your favorite music streaming platform",
