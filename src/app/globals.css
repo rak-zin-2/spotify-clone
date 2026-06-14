@@ -479,3 +479,20 @@ audio {
 body {
   -webkit-tap-highlight-color: transparent;
 }
+/* Lock screen audio support */
+audio {
+  display: none;
+}
+
+/* Ensure images load properly for lock screen */
+img {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* iOS specific fixes */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+}

@@ -59,7 +59,6 @@ export default function MusicPlayer({
 
   // Initialize audio service callbacks
   useEffect(() => {
-    // Set up callbacks for lock screen controls
     audioService.setNextCallback(() => {
       console.log('Next track triggered from lock screen');
       handleNext();
@@ -71,7 +70,7 @@ export default function MusicPlayer({
     });
     
     audioService.setOnEndCallback(() => {
-      console.log('Song ended callback triggered, auto-playing next...');
+      console.log('Song ended, auto-playing next...');
       if (!audioService.isUserPausedState()) {
         handleSongEnd();
       }
@@ -81,12 +80,33 @@ export default function MusicPlayer({
   // Update lock screen metadata whenever current song changes
   useEffect(() => {
     if (currentSong) {
-      // This shows the album art, title, and artist on lock screen
       audioService.updateMediaMetadata(
         currentSong.title,
         currentSong.artist,
         currentSong.cover
       );
+    }
+  }, [currentSong]);
+
+  // Preload image for lock screen
+  useEffect(() => {
+    if (currentSong?.cover && currentSong?.cover !== '') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        console.log('Image preloaded for lock screen:', currentSong.title);
+        setTimeout(() => {
+          audioService.updateMediaMetadata(
+            currentSong.title,
+            currentSong.artist,
+            currentSong.cover
+          );
+        }, 100);
+      };
+      img.onerror = (err) => {
+        console.error('Failed to preload image:', currentSong.cover, err);
+      };
+      img.src = currentSong.cover;
     }
   }, [currentSong]);
 
@@ -102,7 +122,7 @@ export default function MusicPlayer({
     audioService.setVolume(volume);
   }, [volume]);
 
-  // Sync play state to media session
+  // Sync play state
   useEffect(() => {
     audioService.setPlaybackState(playing);
   }, [playing]);

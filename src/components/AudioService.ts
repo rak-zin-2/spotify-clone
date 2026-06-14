@@ -6,6 +6,11 @@ class AudioService {
   private audioElement: HTMLAudioElement | null = null;
   private onEndCallback: (() => void) | null = null;
   private isUserPaused = false;
+  private currentMetadata = {
+    title: '',
+    artist: '',
+    artwork: ''
+  };
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -40,7 +45,7 @@ class AudioService {
   private setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
     
-    // Standard lock screen controls - Play/Pause
+    // Standard lock screen controls - Previous, Play/Pause, Next only
     navigator.mediaSession.setActionHandler('play', () => {
       console.log('Lock screen: Play pressed');
       this.isUserPaused = false;
@@ -53,14 +58,12 @@ class AudioService {
       this.pause();
     });
     
-    // Previous track button
     navigator.mediaSession.setActionHandler('previoustrack', () => {
       console.log('Lock screen: Previous track pressed');
       this.isUserPaused = false;
       if (this.onPrevCallback) this.onPrevCallback();
     });
     
-    // Next track button
     navigator.mediaSession.setActionHandler('nexttrack', () => {
       console.log('Lock screen: Next track pressed');
       this.isUserPaused = false;
@@ -70,10 +73,8 @@ class AudioService {
 
   private setupLockScreenControls() {
     if (this.audioElement) {
-      // This helps with background playback on mobile
       this.audioElement.setAttribute('playsinline', 'true');
       
-      // Keep playing when app goes to background
       document.addEventListener('visibilitychange', () => {
         if (document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
           console.log('App in background, audio continues');
@@ -117,7 +118,6 @@ class AudioService {
       this.audioElement.src = src;
       this.audioElement.load();
       
-      // Auto-play after loading if we were playing before
       if (wasPlaying && !this.isUserPaused) {
         setTimeout(() => {
           this.play();
@@ -134,6 +134,7 @@ class AudioService {
           .then(() => {
             console.log('Audio playing successfully');
             this.isUserPaused = false;
+            this.setPlaybackState(true);
           })
           .catch(error => {
             console.log('Play was prevented:', error);
@@ -146,6 +147,7 @@ class AudioService {
     if (this.audioElement) {
       this.audioElement.pause();
       this.isUserPaused = true;
+      this.setPlaybackState(false);
       console.log('Audio paused by user');
     }
   }
@@ -182,14 +184,18 @@ class AudioService {
     this.isUserPaused = false;
   }
 
-  // This is the important part - shows album art, title, and artist on lock screen
+  // Update lock screen with album art, title, and artist
   updateMediaMetadata(title: string, artist: string, artworkUrl: string) {
+    this.currentMetadata = { title, artist, artwork: artworkUrl };
+    
+    console.log('Updating lock screen metadata:', { title, artist, artworkUrl });
+    
     if ('mediaSession' in navigator && navigator.mediaSession) {
-      // Create artwork array with multiple sizes for best display on all devices
+      // Create artwork array
       const artwork = [];
       
-      // Add multiple sizes for different lock screen resolutions
-      if (artworkUrl) {
+      if (artworkUrl && artworkUrl !== '') {
+        // Add multiple sizes for better display
         artwork.push(
           { src: artworkUrl, sizes: '96x96', type: 'image/jpeg' },
           { src: artworkUrl, sizes: '128x128', type: 'image/jpeg' },
@@ -198,24 +204,29 @@ class AudioService {
           { src: artworkUrl, sizes: '384x384', type: 'image/jpeg' },
           { src: artworkUrl, sizes: '512x512', type: 'image/jpeg' }
         );
+      } else {
+        // Fallback artwork
+        artwork.push(
+          { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }
+        );
       }
       
       // Set the metadata that appears on lock screen
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: title,
-        artist: artist,
+        title: title || 'Unknown Song',
+        artist: artist || 'Unknown Artist',
         album: 'PavPav',
         artwork: artwork
       });
       
-      console.log('Lock screen metadata updated:', { title, artist, artworkUrl });
+      console.log('Lock screen metadata updated successfully');
     } else {
-      console.log('MediaSession API not supported on this device');
+      console.warn('MediaSession API not supported on this device');
     }
   }
 
   setPlaybackState(playing: boolean) {
-    if ('mediaSession' in navigator) {
+    if ('mediaSession' in navigator && navigator.mediaSession) {
       navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
     }
   }
