@@ -160,9 +160,9 @@ export default function MusicPlayer({
     }
   }, [currentIndex, currentQueue, isShuffled, shuffledQueue, shuffledIndex]);
 
-  // Handle next song
+  // Handle next song - FIXED
   const handleNext = useCallback(() => {
-    console.log('handleNext called');
+    console.log('handleNext called, currentIndex:', currentIndex, 'queue length:', currentQueue.length);
     
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
@@ -201,9 +201,10 @@ export default function MusicPlayer({
         }
       }
     } else {
+      // CRITICAL FIX: Call onNext to update parent's playingIndex
       onNext();
     }
-  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext]);
+  }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, currentIndex, setCurrentIndex, onNext]);
 
   // Handle previous song
   const handlePrev = useCallback(() => {
@@ -262,15 +263,19 @@ export default function MusicPlayer({
         setPlaying(true);
       }
     } else {
+      // This will call onNext which updates the parent's playingIndex
       handleNext();
     }
   }, [repeat, handleNext]);
 
-  // Load new song
+  // Load new song - with auto-play fix
   useEffect(() => {
     if (!currentSong?.src) return;
     
+    // Check if this is a new song (different from previous)
     const wasPlaying = playing;
+    
+    console.log('Loading new song:', currentSong.title, 'wasPlaying:', wasPlaying);
     
     setAudioLoaded(false);
     setIsLoading(true);
@@ -286,10 +291,11 @@ export default function MusicPlayer({
         setIsLoading(false);
         setIsChangingSong(false);
         
+        // CRITICAL: Auto-play if it was playing before or if this is a song transition
         const shouldAutoPlay = (hasUserInteracted || wasPlaying) && !audioService.isUserPausedState();
         
         if (shouldAutoPlay && !isChangingSong) {
-          console.log('Auto-playing next song');
+          console.log('Auto-playing next song:', currentSong.title);
           audioService.play();
           setPlaying(true);
         } else {
