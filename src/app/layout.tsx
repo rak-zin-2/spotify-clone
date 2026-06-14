@@ -6,7 +6,6 @@ import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import UpdateNotification from "@/components/UpdateNotification";
 import SplashScreen from "@/components/SplashScreen";
 
-
 export const metadata: Metadata = {
   title: "PavPav - Music Streaming",
   description: "Your favorite music streaming platform",
@@ -49,14 +48,17 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
         <meta name="theme-color" content="#4f7cff" />
+        
+        {/* iOS PWA Meta Tags */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="PavPav" />
         <meta name="mobile-web-app-capable" content="yes" />
         
-        {/* CRITICAL FOR iOS BACKGROUND AUDIO */}
-        <meta name="apple-mobile-web-app-capable" content="yes" />
+        {/* iOS Audio Session - Critical for Control Center */}
+        <meta name="audio-session" content="playback" />
         
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />

@@ -57,15 +57,11 @@ class AudioService {
     this.setupAudioElementEvents();
   }
 
-  // NEW: Handle audio interruptions (calls, voice messages, other apps)
   private setupAudioInterruptionHandling() {
     if (typeof window === 'undefined') return;
 
-    // Handle audio interruptions on iOS and Android
     if (this.audioElement) {
-      // iOS: Handle audio session interruptions
       this.audioElement.addEventListener('pause', () => {
-        // Check if this pause was due to system interruption
         if (!this.isUserPaused && this.audioElement && !this.audioElement.ended) {
           console.log('[AudioService] Potential system interruption detected, saving position');
           this.savedPosition = this.audioElement.currentTime;
@@ -74,20 +70,16 @@ class AudioService {
       });
     }
 
-    // Listen for visibility change (switching apps)
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
-        // App went to background
         if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
           console.log('[AudioService] App backgrounded, saving position');
           this.savedPosition = this.audioElement.currentTime;
           this.wasPlayingBeforeInterruption = true;
         }
       } else {
-        // App came back to foreground
         if (this.wasPlayingBeforeInterruption && !this.isUserPaused && this.savedPosition > 0) {
           console.log('[AudioService] App foregrounded, restoring playback from:', this.savedPosition);
-          // Small delay to ensure everything is ready
           setTimeout(() => {
             this.resumeFromSavedPosition();
           }, 500);
@@ -95,43 +87,18 @@ class AudioService {
       }
     });
 
-    // iOS specific: Handle audio session interruptions (phone calls, voice messages)
     if ('mediaSession' in navigator) {
-      // When a phone call or voice message starts
-      const handleInterruptionStart = () => {
-        console.log('[AudioService] Audio interruption started (call/voice message)');
-        if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
-          this.savedPosition = this.audioElement.currentTime;
-          this.wasPlayingBeforeInterruption = true;
-          this.isUserPaused = true; // Mark as system paused
-        }
-      };
-
-      // When interruption ends (call ends)
-      const handleInterruptionEnd = () => {
-        console.log('[AudioService] Audio interruption ended, resuming playback');
-        if (this.wasPlayingBeforeInterruption && this.savedPosition > 0) {
-          setTimeout(() => {
-            this.resumeFromSavedPosition();
-            this.wasPlayingBeforeInterruption = false;
-            this.isUserPaused = false;
-          }, 500);
-        }
-      };
-
-      // Listen for audio session events
       const audio = this.audioElement;
       if (audio) {
         audio.addEventListener('pause', () => {
-          // Check if this was likely a system interruption
           if (!this.isUserPaused && audio.currentTime > 0) {
-            handleInterruptionStart();
+            this.savedPosition = audio.currentTime;
+            this.wasPlayingBeforeInterruption = true;
           }
         });
       }
     }
 
-    // Handle page visibility for iOS PWA
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
@@ -208,14 +175,12 @@ class AudioService {
     const targetPosition = this.savedPosition;
     console.log('[AudioService] Resuming from saved position:', targetPosition);
     
-    // Clear interruption timer if exists
     if (this.interruptionTimer) {
       clearTimeout(this.interruptionTimer);
     }
     
     this.savedPosition = 0;
     
-    // If the audio source is different, reload it
     if (this.audioElement.src !== this.currentSrc) {
       this.audioElement.src = this.currentSrc;
       this.audioElement.load();
@@ -235,7 +200,6 @@ class AudioService {
     
     this.audioElement.addEventListener('canplay', onCanPlay);
     
-    // Fallback timeout
     this.interruptionTimer = setTimeout(() => {
       if (this.audioElement && targetPosition > 0) {
         this.audioElement.currentTime = targetPosition;
@@ -255,6 +219,7 @@ class AudioService {
       this.isLoading = false;
       this.isWaitingForData = false;
       this.wasPlayingBeforeInterruption = false;
+      this.savedPosition = 0;
       if (this.onEndCallback) {
         this.onEndCallback();
       }
@@ -462,30 +427,34 @@ class AudioService {
     }
   }
 
+  // ========== UPDATED: Better iOS Control Center support ==========
   private setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
     
-    console.log('[AudioService] Setting up MediaSession controls');
+    console.log('[AudioService] Setting up MediaSession controls for iOS Control Center');
+    
+    // Set initial playback state
+    navigator.mediaSession.playbackState = 'none';
     
     navigator.mediaSession.setActionHandler('play', () => {
-      console.log('[AudioService] Lock screen: Play');
+      console.log('[AudioService] Control Center: Play pressed');
       this.isUserPaused = false;
       this.play();
     });
     
     navigator.mediaSession.setActionHandler('pause', () => {
-      console.log('[AudioService] Lock screen: Pause');
+      console.log('[AudioService] Control Center: Pause pressed');
       this.isUserPaused = true;
       this.pause();
     });
     
     navigator.mediaSession.setActionHandler('previoustrack', () => {
-      console.log('[AudioService] Lock screen: Previous track');
+      console.log('[AudioService] Control Center: Previous track pressed');
       if (this.onPrevCallback) this.onPrevCallback();
     });
     
     navigator.mediaSession.setActionHandler('nexttrack', () => {
-      console.log('[AudioService] Lock screen: Next track');
+      console.log('[AudioService] Control Center: Next track pressed');
       if (this.onNextCallback) this.onNextCallback();
     });
     
@@ -496,6 +465,7 @@ class AudioService {
           this.audioElement.currentTime + seekTime,
           this.audioElement.duration
         );
+        this.updatePositionState();
       }
     });
     
@@ -506,6 +476,7 @@ class AudioService {
           this.audioElement.currentTime - seekTime,
           0
         );
+        this.updatePositionState();
       }
     });
     
@@ -516,12 +487,15 @@ class AudioService {
             Math.max(details.seekTime, 0),
             this.audioElement.duration
           );
+          this.updatePositionState();
         }
       });
     } catch (e) {}
     
+    // Re-register handlers when app comes to foreground (important for iOS)
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && 'mediaSession' in navigator) {
+        console.log('[AudioService] App visible, re-registering media session handlers');
         navigator.mediaSession.setActionHandler('play', () => {
           this.isUserPaused = false;
           this.play();
@@ -569,18 +543,21 @@ class AudioService {
       this.loadTimeout = null;
     }
     
-    console.log('[AudioService] Setting audio source');
+    console.log('[AudioService] Setting audio source:', src.substring(0, 100));
     this.currentSrc = src;
     this.retryCount = 0;
     this.isLoading = true;
     this.isWaitingForData = false;
     
+    this.savedPosition = 0;
+    this.wasPlayingBeforeInterruption = false;
+    
     if (!this.audioElement) return;
     
     const wasPlaying = !this.audioElement.paused;
-    const savedTime = this.savedPosition;
     
     this.audioElement.src = src;
+    this.audioElement.currentTime = 0;
     this.audioElement.load();
     
     this.loadTimeout = setTimeout(() => {
@@ -593,8 +570,8 @@ class AudioService {
       console.log('[AudioService] Auto-playing after load');
       const tryPlay = () => {
         if (this.audioElement && this.audioElement.readyState >= 2) {
-          if (savedTime > 0) {
-            this.audioElement.currentTime = savedTime;
+          if (this.audioElement.currentTime === 0) {
+            console.log('[AudioService] Starting new song from beginning');
           }
           this.audioElement.play()
             .then(() => console.log('[AudioService] Auto-play successful'))
@@ -614,6 +591,7 @@ class AudioService {
     }
   }
 
+  // ========== UPDATED: Better Control Center integration ==========
   play() {
     if (!this.audioElement) return;
     
@@ -636,6 +614,10 @@ class AudioService {
         .then(() => {
           console.log('[AudioService] Play successful');
           this.setPlaybackState(true);
+          // Update Control Center state
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'playing';
+          }
         })
         .catch(error => {
           console.error('[AudioService] Play failed:', error);
@@ -648,12 +630,17 @@ class AudioService {
     }
   }
 
+  // ========== UPDATED: Better Control Center integration ==========
   pause() {
     if (this.audioElement) {
       this.audioElement.pause();
       this.isUserPaused = true;
       this.wasPlayingBeforeInterruption = false;
       this.setPlaybackState(false);
+      // Update Control Center state
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'paused';
+      }
       console.log('[AudioService] Paused');
     }
   }
@@ -668,6 +655,7 @@ class AudioService {
     if (this.audioElement && this.audioElement.duration && !isNaN(this.audioElement.duration)) {
       this.audioElement.currentTime = time;
       this.savedPosition = time;
+      this.updatePositionState();
     }
   }
 
@@ -691,10 +679,13 @@ class AudioService {
     this.isUserPaused = false;
   }
 
+  // ========== UPDATED: Better Control Center metadata ==========
   updateMediaMetadata(title: string, artist: string, artworkUrl: string) {
     this.currentTitle = title;
     this.currentArtist = artist;
     this.currentArtwork = artworkUrl;
+    
+    console.log('[AudioService] Updating iOS Control Center metadata:', { title, artist });
     
     if ('mediaSession' in navigator && navigator.mediaSession) {
       const artwork = [];
@@ -718,6 +709,9 @@ class AudioService {
         album: 'PavPav',
         artwork: artwork
       });
+      
+      // Set the playback state
+      navigator.mediaSession.playbackState = this.audioElement?.paused ? 'paused' : 'playing';
       
       this.updatePositionState();
     }
