@@ -19,7 +19,6 @@ export const metadata: Metadata = {
     apple: [
       { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
     ],
-    shortcut: [{ url: "/favicon.ico" }],
   },
   appleWebApp: {
     capable: true,
@@ -54,6 +53,10 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="PavPav" />
         <meta name="mobile-web-app-capable" content="yes" />
+        
+        {/* CRITICAL FOR iOS BACKGROUND AUDIO */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />

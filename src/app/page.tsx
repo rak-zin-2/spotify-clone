@@ -435,6 +435,14 @@ const AdminEditSongModal = ({
   );
 };
 
+// iOS audio activation handler
+const activateIOSAudio = () => {
+  // Create and play a silent audio to "activate" the audio session on iOS
+  const silentAudio = new Audio();
+  silentAudio.volume = 0;
+  silentAudio.play().catch(() => {});
+};
+
 export default function Home() {
   // ========== PERSISTENT PLAYING STATE - NEVER RESET ON NAVIGATION ==========
   const [playingSongTitle, setPlayingSongTitle] = useState<string | null>(null);
@@ -498,6 +506,25 @@ export default function Home() {
 
   const allSongs = supabaseSongs;
 
+  // iOS Audio Activation - User interaction required for background audio on iOS
+  useEffect(() => {
+    // iOS requires user interaction before audio can play in background
+    const handleUserInteraction = () => {
+      activateIOSAudio();
+      // Remove listeners after first interaction
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+    
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('touchstart', handleUserInteraction);
+    
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+  }, []);
+
   // Helper functions
   const getSongsForArtistByName = useCallback((artistName: string): Song[] => {
     return allSongs.filter(song => songBelongsToArtist(song.artist, artistName));
@@ -518,49 +545,49 @@ export default function Home() {
     return allSongs.map(s => s.title);
   }, [playingQueue, allSongs]);
 
-// FASTER: Play next function with preloading optimization
-const playNext = useCallback(() => {
-  const currentQueue = getActualPlayingQueue();
-  console.log('[Page] playNext - Current index:', playingIndex, 'Queue length:', currentQueue.length);
-  
-  if (!currentQueue.length) return;
-  
-  if (playingIndex < currentQueue.length - 1) {
-    const newIndex = playingIndex + 1;
-    const nextSong = currentQueue[newIndex];
-    console.log('[Page] Going to next song:', nextSong, 'at index:', newIndex);
-    setPlayingIndex(newIndex);
-    setPlayingSongTitle(nextSong);
-  } else {
-    // End of queue - loop to beginning
-    console.log('[Page] End of queue, looping to first song');
-    setPlayingIndex(0);
-    setPlayingSongTitle(currentQueue[0]);
-  }
-}, [playingIndex, getActualPlayingQueue]);
+  // FAST: Play next function with preloading optimization
+  const playNext = useCallback(() => {
+    const currentQueue = getActualPlayingQueue();
+    console.log('[Page] playNext - Current index:', playingIndex, 'Queue length:', currentQueue.length);
+    
+    if (!currentQueue.length) return;
+    
+    if (playingIndex < currentQueue.length - 1) {
+      const newIndex = playingIndex + 1;
+      const nextSong = currentQueue[newIndex];
+      console.log('[Page] Going to next song:', nextSong, 'at index:', newIndex);
+      setPlayingIndex(newIndex);
+      setPlayingSongTitle(nextSong);
+    } else {
+      // End of queue - loop to beginning
+      console.log('[Page] End of queue, looping to first song');
+      setPlayingIndex(0);
+      setPlayingSongTitle(currentQueue[0]);
+    }
+  }, [playingIndex, getActualPlayingQueue]);
 
-// FIXED: Play previous function
-const playPrevious = useCallback(() => {
-  const currentQueue = getActualPlayingQueue();
-  console.log('[Page] playPrevious - Current index:', playingIndex, 'Queue length:', currentQueue.length);
-  
-  if (!currentQueue.length) return;
-  
-  if (playingIndex > 0) {
-    const newIndex = playingIndex - 1;
-    const prevSong = currentQueue[newIndex];
-    console.log('[Page] Going to previous song:', prevSong, 'at index:', newIndex);
-    setPlayingIndex(newIndex);
-    setPlayingSongTitle(prevSong);
-  } else {
-    // Beginning of queue - go to last song
-    const newIndex = currentQueue.length - 1;
-    const lastSong = currentQueue[newIndex];
-    console.log('[Page] Beginning of queue, going to last song:', lastSong);
-    setPlayingIndex(newIndex);
-    setPlayingSongTitle(lastSong);
-  }
-}, [playingIndex, playingContextType, getActualPlayingQueue]);
+  // FIXED: Play previous function
+  const playPrevious = useCallback(() => {
+    const currentQueue = getActualPlayingQueue();
+    console.log('[Page] playPrevious - Current index:', playingIndex, 'Queue length:', currentQueue.length);
+    
+    if (!currentQueue.length) return;
+    
+    if (playingIndex > 0) {
+      const newIndex = playingIndex - 1;
+      const prevSong = currentQueue[newIndex];
+      console.log('[Page] Going to previous song:', prevSong, 'at index:', newIndex);
+      setPlayingIndex(newIndex);
+      setPlayingSongTitle(prevSong);
+    } else {
+      // Beginning of queue - go to last song
+      const newIndex = currentQueue.length - 1;
+      const lastSong = currentQueue[newIndex];
+      console.log('[Page] Beginning of queue, going to last song:', lastSong);
+      setPlayingIndex(newIndex);
+      setPlayingSongTitle(lastSong);
+    }
+  }, [playingIndex, getActualPlayingQueue]);
 
   // Play song - THIS IS THE ONLY PLACE THAT CHANGES PLAYBACK
   const playSong = useCallback((title: string, contextType: 'playlist' | 'liked' | 'artist' | 'all' = 'all', contextId?: string, contextSongs?: string[]) => {
@@ -827,22 +854,35 @@ const playPrevious = useCallback(() => {
   const scrollToTop = useCallback(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, []);
 
   const scrollContentToTop = useCallback(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, []);
 
   useEffect(() => {
     const handleScroll = () => {
-      setShowBackToTop(window.scrollY > 200);
+      const scrollY = window.scrollY || (scrollContainerRef.current?.scrollTop || 0);
+      setShowBackToTop(scrollY > 200);
     };
     window.addEventListener("scroll", handleScroll);
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.addEventListener("scroll", handleScroll);
+    }
     handleScroll();
-    return () => window.removeEventListener("scroll", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.removeEventListener("scroll", handleScroll);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -1034,7 +1074,7 @@ const playPrevious = useCallback(() => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
-          className="relative z-[100] flex-1 overflow-y-auto md:ml-72 pt-45 md:pt-[70px] pb-[140px] px-4 md:px-5"
+          className="relative z-[100] flex-1 overflow-y-auto md:ml-72 pt-16 md:pt-[70px] pb-[140px] px-4 md:px-5"
         >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 md:mb-8">
             <div className="flex items-center justify-between w-full md:w-auto">
