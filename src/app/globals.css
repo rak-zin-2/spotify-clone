@@ -496,3 +496,18 @@ img {
     color-scheme: dark;
   }
 }
+/* Draggable Mini Player */
+.draggable-mini-player {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.draggable-mini-player * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Smooth transitions */
+.mini-player-transition {
+  transition: all 0.2s ease;
+}

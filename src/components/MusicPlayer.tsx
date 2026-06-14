@@ -11,6 +11,8 @@ import {
   Pause,
   Volume2,
   VolumeX,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
 import { audioService } from "./AudioService";
 
@@ -54,6 +56,9 @@ export default function MusicPlayer({
   const [shuffledQueue, setShuffledQueue] = useState<string[]>([]);
   const [shuffledIndex, setShuffledIndex] = useState(0);
   const [isShuffled, setIsShuffled] = useState(false);
+
+  // Mini player visibility state
+  const [showMiniPlayer, setShowMiniPlayer] = useState(true);
 
   // THIS IS THE KEY FUNCTION - handles next song (used by both skip button AND song end)
   const goToNextSong = useCallback(() => {
@@ -319,13 +324,21 @@ export default function MusicPlayer({
     return () => clearInterval(interval);
   }, []);
 
-  // ========== ADD THIS: Dispatch progress event for mini player ==========
+  // Dispatch progress event for mini player
   useEffect(() => {
-    // Dispatch a custom event with the current progress for the mini player
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('musicPlayerProgress', { detail: { progress } }));
     }
   }, [progress]);
+
+  // Toggle mini player visibility
+  const toggleMiniPlayer = useCallback(() => {
+    setShowMiniPlayer(prev => !prev);
+    // Dispatch event to notify page component
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('toggleMiniPlayer', { detail: { visible: !showMiniPlayer } }));
+    }
+  }, [showMiniPlayer]);
 
   const togglePlay = useCallback(() => {
     console.log('togglePlay called');
@@ -531,6 +544,22 @@ export default function MusicPlayer({
           </div>
 
           <div className="hidden lg:flex items-center gap-2 justify-end">
+            {/* Mini Player Toggle Button */}
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={toggleMiniPlayer}
+              className="p-1.5 md:p-2 rounded-full hover:bg-white/10 transition"
+              aria-label={showMiniPlayer ? "Hide Mini Player" : "Show Mini Player"}
+              title={showMiniPlayer ? "Hide Mini Player" : "Show Mini Player"}
+            >
+              {showMiniPlayer ? (
+                <Minimize2 size={14} className="text-blue-400" />
+              ) : (
+                <Maximize2 size={14} className="text-blue-400" />
+              )}
+            </motion.button>
+
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.95 }}

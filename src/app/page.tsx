@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import Sidebar from "@/components/Sidebar";
 import MusicPlayer from "@/components/MusicPlayer";
-import MiniMusicPlayer from "@/components/MiniMusicPlayer";  // <-- ADD THIS
+import DraggableMiniPlayer from "@/components/DraggableMiniPlayer";
 import PlaylistModal from "@/components/PlaylistModal";
 import PlaylistView from "@/components/PlaylistView";
 import AdminNotificationCenter from "@/components/AdminNotificationCenter";
@@ -19,7 +19,7 @@ import { useSupabaseSongs } from "@/hooks/useSupabaseSongs";
 import { useSupabaseArtists } from "@/hooks/useSupabaseArtists";
 
 import { Plus, Play, Disc3, ArrowLeft, Heart, Search as SearchIcon, X, ArrowUp, Upload, Trash2, Edit2, Save, ImageIcon, Mic, Check, Music } from "lucide-react";
-import { audioService } from "@/components/AudioService";  // <-- ADD THIS
+import { audioService } from "@/components/AudioService";
 
 // Type for song
 type Song = {
@@ -499,7 +499,7 @@ export default function Home() {
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // ========== MINI MUSIC PLAYER STATE (ADD THIS) ==========
+  // ========== MINI MUSIC PLAYER STATE ==========
   const [miniPlayerProgress, setMiniPlayerProgress] = useState(0);
   const [isMiniPlayerPlaying, setIsMiniPlayerPlaying] = useState(false);
 
@@ -512,7 +512,7 @@ export default function Home() {
 
   const allSongs = supabaseSongs;
 
-  // ========== TRACK PROGRESS FOR MINI PLAYER (ADD THIS) ==========
+  // ========== TRACK PROGRESS FOR MINI PLAYER ==========
   useEffect(() => {
     const updateProgress = () => {
       const audio = audioService.getAudioElement();
@@ -524,7 +524,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // ========== TRACK PLAYING STATE FOR MINI PLAYER (ADD THIS) ==========
+  // ========== TRACK PLAYING STATE FOR MINI PLAYER ==========
   useEffect(() => {
     const audio = audioService.getAudioElement();
     if (!audio) return;
@@ -538,7 +538,7 @@ export default function Home() {
     };
   }, []);
 
-  // ========== HANDLE SEEK FROM MINI PLAYER (ADD THIS) ==========
+  // ========== HANDLE SEEK FROM MINI PLAYER ==========
   const handleMiniPlayerSeek = useCallback((percent: number) => {
     const audio = audioService.getAudioElement();
     if (audio && audio.duration) {
@@ -546,7 +546,7 @@ export default function Home() {
     }
   }, []);
 
-  // ========== HANDLE TOGGLE PLAY FROM MINI PLAYER (ADD THIS) ==========
+  // ========== HANDLE TOGGLE PLAY FROM MINI PLAYER ==========
   const handleMiniPlayerTogglePlay = useCallback(() => {
     if (isMiniPlayerPlaying) {
       audioService.pause();
@@ -1239,6 +1239,7 @@ const playNext = useCallback(() => {
             </div>
           </div>
 
+          {/* ========== YOUR EXISTING HOME TAB CONTENT ========== */}
           {activeTab === "home" && (
             <>
               {recentlyPlayedSongs.length > 0 && (
@@ -1379,6 +1380,7 @@ const playNext = useCallback(() => {
             </>
           )}
 
+          {/* ========== YOUR EXISTING SEARCH TAB CONTENT ========== */}
           {activeTab === "search" && (
             <div className="grid gap-4 md:gap-5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
               {filteredSongs.length === 0 && search.trim() !== "" && (
@@ -1495,6 +1497,7 @@ const playNext = useCallback(() => {
             </div>
           )}
 
+          {/* ========== YOUR EXISTING ARTISTS TAB CONTENT ========== */}
           {activeTab === "artists" && (
             showArtistView ? (
               <div className="animate-in fade-in duration-300">
@@ -1665,6 +1668,7 @@ const playNext = useCallback(() => {
             )
           )}
 
+          {/* ========== YOUR EXISTING LIBRARY TAB CONTENT ========== */}
           {activeTab === "library" && (
             showLikedSongs ? (
               <div className="animate-in fade-in duration-300">
@@ -2101,6 +2105,7 @@ const playNext = useCallback(() => {
         </div>
       )}
 
+      {/* Main Music Player */}
       <MusicPlayer
         songs={musicPlayerSongs}
         currentSong={musicPlayerCurrentSong}
@@ -2111,8 +2116,8 @@ const playNext = useCallback(() => {
         onPrev={playPrevious}
       />
 
-      {/* ========== MINI MUSIC PLAYER (ADD THIS) ========== */}
-      <MiniMusicPlayer
+      {/* ========== DRAGGABLE MINI MUSIC PLAYER ========== */}
+      <DraggableMiniPlayer
         currentSong={musicPlayerCurrentSong}
         isPlaying={isMiniPlayerPlaying}
         onTogglePlay={handleMiniPlayerTogglePlay}
@@ -2183,7 +2188,6 @@ const playNext = useCallback(() => {
                 animation: "pulse 1.5s ease-in-out infinite",
               }}
             />
-            
             <div 
               style={{
                 position: "absolute",
@@ -2192,7 +2196,6 @@ const playNext = useCallback(() => {
                 background: "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.3), rgba(255,255,255,0))",
               }}
             />
-            
             <ArrowUp 
               size={28} 
               style={{ 
@@ -2202,7 +2205,6 @@ const playNext = useCallback(() => {
                 strokeWidth: 2.5,
               }} 
             />
-            
             <style>{`
               @keyframes pulse {
                 0%, 100% {
