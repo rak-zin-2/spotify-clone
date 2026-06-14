@@ -16,6 +16,7 @@ class AudioService {
   private isLoading = false;
   private loadTimeout: NodeJS.Timeout | null = null;
   private isSwitchingSong = false;
+  private shouldAutoPlayNext = true;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -66,12 +67,11 @@ class AudioService {
       this.isSwitchingSong = false;
       
       // Always call onEndCallback when audio ends naturally
-      // This will trigger the next song
-      if (this.onEndCallback) {
+      if (this.onEndCallback && this.shouldAutoPlayNext && !this.isUserPaused) {
         console.log('[AudioService] Calling onEndCallback for next song');
         this.onEndCallback();
-      } else {
-        console.log('[AudioService] Warning: onEndCallback is null');
+      } else if (this.isUserPaused) {
+        console.log('[AudioService] User paused, not auto-playing next');
       }
     };
     
@@ -108,8 +108,7 @@ class AudioService {
             setTimeout(() => this.play(), 200);
           }
         }, 500);
-      } else if (this.onEndCallback) {
-        // On error, also try to go to next song
+      } else if (this.onEndCallback && this.shouldAutoPlayNext && !this.isUserPaused) {
         console.log('[AudioService] Error occurred, skipping to next song');
         this.onEndCallback();
       }
@@ -252,7 +251,8 @@ class AudioService {
       this.isSwitchingSong = false;
       this.setupAudioElementEvents();
       
-      if (wasPlaying && this.audioElement) {
+      if (wasPlaying && this.audioElement && !this.isUserPaused) {
+        console.log('[AudioService] Auto-playing preloaded song');
         setTimeout(() => {
           this.audioElement?.play().catch(e => console.error('Play after swap failed:', e));
         }, 50);
@@ -287,6 +287,7 @@ class AudioService {
     navigator.mediaSession.setActionHandler('play', () => {
       console.log('[AudioService] Lock screen: Play');
       this.isUserPaused = false;
+      this.shouldAutoPlayNext = true;
       this.play();
     });
     
@@ -491,6 +492,8 @@ class AudioService {
     }
     
     this.isLoading = false;
+    this.isUserPaused = false;
+    this.shouldAutoPlayNext = true;
     
     // If audio is at the end, reset to beginning
     if (this.audioElement.currentTime >= this.audioElement.duration && this.audioElement.duration > 0) {
@@ -502,7 +505,6 @@ class AudioService {
       playPromise
         .then(() => {
           console.log('[AudioService] Playing successfully');
-          this.isUserPaused = false;
           this.setPlaybackState(true);
           this.updatePositionState();
         })
@@ -519,8 +521,9 @@ class AudioService {
     if (this.audioElement) {
       this.audioElement.pause();
       this.isUserPaused = true;
+      this.shouldAutoPlayNext = false;
       this.setPlaybackState(false);
-      console.log('[AudioService] Paused by user');
+      console.log('[AudioService] Paused by user - auto-play disabled');
     }
   }
 
@@ -555,6 +558,7 @@ class AudioService {
   
   resetUserPauseState() {
     this.isUserPaused = false;
+    this.shouldAutoPlayNext = true;
   }
   
   isLoadingState(): boolean {
