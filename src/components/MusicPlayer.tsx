@@ -40,7 +40,6 @@ export default function MusicPlayer({
   onNext,
   onPrev,
 }: Props) {
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<"off" | "all" | "one">("off");
@@ -103,9 +102,6 @@ export default function MusicPlayer({
           );
         }, 100);
       };
-      img.onerror = (err) => {
-        console.error('Failed to preload image:', currentSong.cover, err);
-      };
       img.src = currentSong.cover;
     }
   }, [currentSong]);
@@ -127,7 +123,7 @@ export default function MusicPlayer({
     audioService.setPlaybackState(playing);
   }, [playing]);
 
-  // Generate new shuffled queue when shuffle is toggled on or queue changes
+  // Generate new shuffled queue
   useEffect(() => {
     if (shuffle && currentQueue.length > 0) {
       const newShuffledQueue = [...currentQueue];
@@ -153,7 +149,7 @@ export default function MusicPlayer({
     }
   }, [shuffle, currentQueue, currentIndex]);
 
-  // Update shuffled index when currentIndex changes in shuffle mode
+  // Update shuffled index
   useEffect(() => {
     if (isShuffled && shuffledQueue.length > 0) {
       const currentSongTitle = currentQueue[currentIndex];
@@ -270,7 +266,7 @@ export default function MusicPlayer({
     }
   }, [repeat, handleNext]);
 
-  // Load new song when currentSong changes
+  // Load new song
   useEffect(() => {
     if (!currentSong?.src) return;
     

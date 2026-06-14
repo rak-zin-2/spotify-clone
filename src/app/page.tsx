@@ -553,6 +553,9 @@ export default function Home() {
 
   // Play song - THIS IS THE ONLY PLACE THAT CHANGES PLAYBACK
   const playSong = useCallback((title: string, contextType: 'playlist' | 'liked' | 'artist' | 'all' = 'all', contextId?: string, contextSongs?: string[]) => {
+    // Clear any stuck state when explicitly playing a new song
+    localStorage.removeItem('pavpav_playing_song_title');
+    
     const songsToUse = contextSongs || (contextType === 'liked' ? likedSongTitles : allSongs.map(s => s.title));
     const index = songsToUse.findIndex(s => s === title);
     
@@ -871,6 +874,72 @@ export default function Home() {
       return [playingSongTitle, ...prev.filter((title) => title !== playingSongTitle)].slice(0, 5);
     });
   }, [playingSongTitle]);
+
+  // ========== PWA PERSISTENCE - Save playing state to localStorage ==========
+  // Save current playing state whenever it changes
+  useEffect(() => {
+    if (playingSongTitle && playingQueue.length > 0) {
+      try {
+        localStorage.setItem('pavpav_playing_song_title', playingSongTitle);
+        localStorage.setItem('pavpav_playing_queue', JSON.stringify(playingQueue));
+        localStorage.setItem('pavpav_playing_index', playingIndex.toString());
+        localStorage.setItem('pavpav_playing_context', playingContextType);
+        console.log('Saved playing state to localStorage:', { playingSongTitle, playingIndex });
+      } catch (error) {
+        console.error('Failed to save playing state:', error);
+      }
+    }
+  }, [playingSongTitle, playingQueue, playingIndex, playingContextType]);
+
+  // Load playing state from localStorage on app start (fixes PWA home screen issue)
+  useEffect(() => {
+    if (allSongs.length === 0) return;
+    
+    try {
+      const savedSong = localStorage.getItem('pavpav_playing_song_title');
+      const savedQueue = localStorage.getItem('pavpav_playing_queue');
+      const savedIndex = localStorage.getItem('pavpav_playing_index');
+      const savedContext = localStorage.getItem('pavpav_playing_context') as 'playlist' | 'liked' | 'artist' | 'all' | null;
+      
+      if (savedSong && savedQueue && savedIndex && allSongs.length > 0) {
+        const parsedQueue = JSON.parse(savedQueue);
+        const parsedIndex = parseInt(savedIndex);
+        
+        // Verify the saved song still exists in the queue and in allSongs
+        const songExists = allSongs.some(s => s.title === savedSong);
+        const songInQueue = parsedQueue.includes(savedSong);
+        
+        if (songExists && songInQueue && parsedQueue[parsedIndex] === savedSong) {
+          setPlayingSongTitle(savedSong);
+          setPlayingQueue(parsedQueue);
+          setPlayingIndex(parsedIndex);
+          if (savedContext) setPlayingContextType(savedContext);
+          console.log('Loaded saved playing state:', { savedSong, parsedIndex });
+        } else {
+          console.log('Saved song not found, using default');
+          // Set default to first song if no valid saved state
+          if (allSongs.length > 0 && !playingSongTitle) {
+            setPlayingSongTitle(allSongs[0].title);
+            setPlayingQueue(allSongs.map(s => s.title));
+            setPlayingIndex(0);
+          }
+        }
+      } else if (allSongs.length > 0 && !playingSongTitle) {
+        // First time - set default to first song
+        setPlayingSongTitle(allSongs[0].title);
+        setPlayingQueue(allSongs.map(s => s.title));
+        setPlayingIndex(0);
+      }
+    } catch (error) {
+      console.error('Failed to load playing state:', error);
+      // Fallback to first song
+      if (allSongs.length > 0 && !playingSongTitle) {
+        setPlayingSongTitle(allSongs[0].title);
+        setPlayingQueue(allSongs.map(s => s.title));
+        setPlayingIndex(0);
+      }
+    }
+  }, [allSongs]); // Only run when songs are loaded
 
   const suggestions = useMemo(() => getSuggestions(search, allSongs, 5), [search, allSongs]);
 
