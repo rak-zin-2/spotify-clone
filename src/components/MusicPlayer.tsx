@@ -72,30 +72,28 @@ export default function MusicPlayer({
     
     audioService.setOnEndCallback(() => {
       console.log('Song ended callback triggered, auto-playing next...');
-      // Only auto-play next if user hasn't explicitly paused
       if (!audioService.isUserPausedState()) {
         handleSongEnd();
-      } else {
-        console.log('User paused, not auto-playing next');
       }
     });
-    
-    // Sync audio element reference
-    if (audioRef.current) {
-      const serviceAudio = audioService.getAudioElement();
-      if (serviceAudio) {
-        serviceAudio.onvolumechange = () => {
-          if (audioRef.current) audioRef.current.volume = serviceAudio.volume;
-        };
-      }
-    }
   }, []);
+
+  // Update lock screen metadata whenever current song changes
+  useEffect(() => {
+    if (currentSong) {
+      // This shows the album art, title, and artist on lock screen
+      audioService.updateMediaMetadata(
+        currentSong.title,
+        currentSong.artist,
+        currentSong.cover
+      );
+    }
+  }, [currentSong]);
 
   // Sync audio element with service
   useEffect(() => {
     if (currentSong?.src) {
       audioService.setSrc(currentSong.src);
-      audioService.updateMediaMetadata(currentSong.title, currentSong.artist, currentSong.cover);
     }
   }, [currentSong]);
 
@@ -107,8 +105,7 @@ export default function MusicPlayer({
   // Sync play state to media session
   useEffect(() => {
     audioService.setPlaybackState(playing);
-    audioService.updateMediaMetadata(currentSong.title, currentSong.artist, currentSong.cover);
-  }, [playing, currentSong]);
+  }, [playing]);
 
   // Generate new shuffled queue when shuffle is toggled on or queue changes
   useEffect(() => {
@@ -147,7 +144,7 @@ export default function MusicPlayer({
     }
   }, [currentIndex, currentQueue, isShuffled, shuffledQueue, shuffledIndex]);
 
-  // Handle next song - FIXED for auto-play
+  // Handle next song
   const handleNext = useCallback(() => {
     console.log('handleNext called');
     
@@ -162,7 +159,7 @@ export default function MusicPlayer({
     }
 
     setIsChangingSong(true);
-    audioService.resetUserPauseState(); // Reset pause state when manually changing track
+    audioService.resetUserPauseState();
 
     if (isShuffled && shuffledQueue.length > 0) {
       if (shuffledIndex < shuffledQueue.length - 1) {
@@ -207,7 +204,7 @@ export default function MusicPlayer({
     }
 
     setIsChangingSong(true);
-    audioService.resetUserPauseState(); // Reset pause state when manually changing track
+    audioService.resetUserPauseState();
 
     if (isShuffled && shuffledQueue.length > 0) {
       if (shuffledIndex > 0) {
@@ -237,7 +234,7 @@ export default function MusicPlayer({
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
 
-  // Handle song end - FIXED to auto-play next
+  // Handle song end - auto-play next
   const handleSongEnd = useCallback(() => {
     console.log('handleSongEnd called, repeat mode:', repeat);
     
@@ -249,7 +246,6 @@ export default function MusicPlayer({
         setPlaying(true);
       }
     } else {
-      // This will trigger handleNext which will load and auto-play the next song
       handleNext();
     }
   }, [repeat, handleNext]);
@@ -260,14 +256,11 @@ export default function MusicPlayer({
     
     const wasPlaying = playing;
     
-    // Reset states for new song
     setAudioLoaded(false);
     setIsLoading(true);
     setProgress(0);
     
-    // Use audio service for background playback
     audioService.setSrc(currentSong.src);
-    audioService.updateMediaMetadata(currentSong.title, currentSong.artist, currentSong.cover);
     
     const serviceAudio = audioService.getAudioElement();
     
@@ -277,10 +270,6 @@ export default function MusicPlayer({
         setIsLoading(false);
         setIsChangingSong(false);
         
-        // Auto-play if:
-        // 1. User has interacted before, OR
-        // 2. Was playing before song change, OR
-        // 3. We're auto-playing next song (not user paused)
         const shouldAutoPlay = (hasUserInteracted || wasPlaying) && !audioService.isUserPausedState();
         
         if (shouldAutoPlay && !isChangingSong) {
@@ -288,7 +277,6 @@ export default function MusicPlayer({
           audioService.play();
           setPlaying(true);
         } else {
-          console.log('Not auto-playing, user paused or no interaction');
           setPlaying(false);
         }
         
@@ -312,7 +300,7 @@ export default function MusicPlayer({
     }
   }, [currentSong, hasUserInteracted, isChangingSong, playing]);
 
-  // Update progress bar from audio service
+  // Update progress bar
   useEffect(() => {
     const updateProgress = () => {
       const audio = audioService.getAudioElement();
@@ -326,7 +314,7 @@ export default function MusicPlayer({
   }, []);
 
   const togglePlay = useCallback(() => {
-    console.log('togglePlay called, current playing state:', playing);
+    console.log('togglePlay called');
     setHasUserInteracted(true);
     
     if (playing) {

@@ -4,9 +4,8 @@
 // This service manages audio playback with background support
 class AudioService {
   private audioElement: HTMLAudioElement | null = null;
-  private isInitialized = false;
   private onEndCallback: (() => void) | null = null;
-  private isUserPaused = false; // Track if user intentionally paused
+  private isUserPaused = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -41,7 +40,7 @@ class AudioService {
   private setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
     
-    // Set action handlers for lock screen controls
+    // Standard lock screen controls - Play/Pause
     navigator.mediaSession.setActionHandler('play', () => {
       console.log('Lock screen: Play pressed');
       this.isUserPaused = false;
@@ -54,33 +53,29 @@ class AudioService {
       this.pause();
     });
     
+    // Previous track button
     navigator.mediaSession.setActionHandler('previoustrack', () => {
       console.log('Lock screen: Previous track pressed');
+      this.isUserPaused = false;
       if (this.onPrevCallback) this.onPrevCallback();
     });
     
+    // Next track button
     navigator.mediaSession.setActionHandler('nexttrack', () => {
       console.log('Lock screen: Next track pressed');
+      this.isUserPaused = false;
       if (this.onNextCallback) this.onNextCallback();
-    });
-    
-    navigator.mediaSession.setActionHandler('seekto', (details) => {
-      if (details.seekTime && this.audioElement) {
-        this.audioElement.currentTime = details.seekTime;
-      }
     });
   }
 
   private setupLockScreenControls() {
-    // Ensure audio continues when screen locks
     if (this.audioElement) {
-      // This prevents iOS from pausing when screen locks
+      // This helps with background playback on mobile
       this.audioElement.setAttribute('playsinline', 'true');
       
-      // For iOS Web Audio support
+      // Keep playing when app goes to background
       document.addEventListener('visibilitychange', () => {
         if (document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
-          // Keep playing in background
           console.log('App in background, audio continues');
         }
       });
@@ -95,7 +90,7 @@ class AudioService {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.setActionHandler('nexttrack', () => {
         console.log('Lock screen: Next track triggered');
-        this.isUserPaused = false; // Reset pause state when manually changing track
+        this.isUserPaused = false;
         callback();
       });
     }
@@ -106,7 +101,7 @@ class AudioService {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.setActionHandler('previoustrack', () => {
         console.log('Lock screen: Previous track triggered');
-        this.isUserPaused = false; // Reset pause state when manually changing track
+        this.isUserPaused = false;
         callback();
       });
     }
@@ -187,20 +182,35 @@ class AudioService {
     this.isUserPaused = false;
   }
 
-  updateMediaMetadata(title: string, artist: string, artwork: string) {
-    if ('mediaSession' in navigator) {
+  // This is the important part - shows album art, title, and artist on lock screen
+  updateMediaMetadata(title: string, artist: string, artworkUrl: string) {
+    if ('mediaSession' in navigator && navigator.mediaSession) {
+      // Create artwork array with multiple sizes for best display on all devices
+      const artwork = [];
+      
+      // Add multiple sizes for different lock screen resolutions
+      if (artworkUrl) {
+        artwork.push(
+          { src: artworkUrl, sizes: '96x96', type: 'image/jpeg' },
+          { src: artworkUrl, sizes: '128x128', type: 'image/jpeg' },
+          { src: artworkUrl, sizes: '192x192', type: 'image/jpeg' },
+          { src: artworkUrl, sizes: '256x256', type: 'image/jpeg' },
+          { src: artworkUrl, sizes: '384x384', type: 'image/jpeg' },
+          { src: artworkUrl, sizes: '512x512', type: 'image/jpeg' }
+        );
+      }
+      
+      // Set the metadata that appears on lock screen
       navigator.mediaSession.metadata = new MediaMetadata({
         title: title,
         artist: artist,
-        artwork: [
-          { src: artwork, sizes: '96x96', type: 'image/png' },
-          { src: artwork, sizes: '128x128', type: 'image/png' },
-          { src: artwork, sizes: '192x192', type: 'image/png' },
-          { src: artwork, sizes: '256x256', type: 'image/png' },
-          { src: artwork, sizes: '384x384', type: 'image/png' },
-          { src: artwork, sizes: '512x512', type: 'image/png' },
-        ]
+        album: 'PavPav',
+        artwork: artwork
       });
+      
+      console.log('Lock screen metadata updated:', { title, artist, artworkUrl });
+    } else {
+      console.log('MediaSession API not supported on this device');
     }
   }
 
