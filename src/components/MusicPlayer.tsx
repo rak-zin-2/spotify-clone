@@ -49,31 +49,27 @@ export default function MusicPlayer({
   const [isLoading, setIsLoading] = useState(true);
   const [audioLoaded, setAudioLoaded] = useState(false);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
-  const [isChangingSong, setIsChangingSong] = useState(false);
   
-  // Shuffle state
   const [shuffledQueue, setShuffledQueue] = useState<string[]>([]);
   const [shuffledIndex, setShuffledIndex] = useState(0);
   const [isShuffled, setIsShuffled] = useState(false);
 
-  // Reference to track if component is mounted
   const isMounted = useRef(true);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Handle next song - defined before use in callbacks
   const handleNext = useCallback(() => {
-    console.log('handleNext called from MusicPlayer, current index:', currentIndex, 'queue length:', currentQueue.length);
+    console.log('[MusicPlayer] handleNext called, repeat:', repeat, 'currentIndex:', currentIndex);
     
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
       if (audio) {
         audio.currentTime = 0;
-        audio.play().catch(() => {});
+        audio.play().catch(e => console.error('[MusicPlayer] Replay failed:', e));
         setPlaying(true);
       }
       return;
     }
 
-    setIsChangingSong(true);
     audioService.resetUserPauseState();
 
     if (isShuffled && shuffledQueue.length > 0) {
@@ -100,26 +96,23 @@ export default function MusicPlayer({
         }
       }
     } else {
-      // Call the parent's onNext which handles index increment
       onNext();
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext, currentIndex]);
 
-  // Handle previous song
   const handlePrev = useCallback(() => {
-    console.log('handlePrev called from MusicPlayer');
+    console.log('[MusicPlayer] handlePrev called');
     
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
       if (audio) {
         audio.currentTime = 0;
-        audio.play().catch(() => {});
+        audio.play().catch(e => console.error('[MusicPlayer] Replay failed:', e));
         setPlaying(true);
       }
       return;
     }
 
-    setIsChangingSong(true);
     audioService.resetUserPauseState();
 
     if (isShuffled && shuffledQueue.length > 0) {
@@ -141,8 +134,10 @@ export default function MusicPlayer({
         }
       } else {
         const audio = audioService.getAudioElement();
-        if (audio) {
+        if (audio && audio.currentTime > 3) {
           audio.currentTime = 0;
+        } else {
+          onPrev();
         }
       }
     } else {
@@ -150,58 +145,57 @@ export default function MusicPlayer({
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
 
-  // Handle song end - this is the callback from AudioService
   const handleSongEnd = useCallback(() => {
-    console.log('handleSongEnd called from MusicPlayer, repeat mode:', repeat);
+    console.log('[MusicPlayer] handleSongEnd called, repeat:', repeat);
     
-    // Use a small timeout to ensure state is updated properly
+    if (!isMounted.current) return;
+    
     setTimeout(() => {
+      if (!isMounted.current) return;
+      
       if (repeat === "one") {
         const audio = audioService.getAudioElement();
         if (audio) {
           audio.currentTime = 0;
-          audio.play().catch(e => console.error('Failed to replay:', e));
+          audio.play().catch(e => console.error('[MusicPlayer] Replay failed:', e));
           setPlaying(true);
         }
       } else {
-        // Call handleNext to go to next song
-        console.log('Calling handleNext from handleSongEnd');
         handleNext();
       }
     }, 50);
   }, [repeat, handleNext]);
 
-  // Initialize audio service callbacks - only once
+  // Initialize audio service callbacks
   useEffect(() => {
-    console.log('Setting up audio service callbacks');
+    console.log('[MusicPlayer] Setting up audio service callbacks');
     
     audioService.setNextCallback(() => {
-      console.log('Next track triggered from lock screen');
+      console.log('[MusicPlayer] Next track from lock screen');
       handleNext();
     });
     
     audioService.setPrevCallback(() => {
-      console.log('Previous track triggered from lock screen');
+      console.log('[MusicPlayer] Previous track from lock screen');
       handlePrev();
     });
     
     audioService.setOnEndCallback(() => {
-      console.log('Song ended callback from audioService - triggering handleSongEnd');
+      console.log('[MusicPlayer] End callback from audioService');
       handleSongEnd();
     });
     
     return () => {
-      // Cleanup callbacks on unmount
       audioService.setOnEndCallback(() => {});
       audioService.setNextCallback(() => {});
       audioService.setPrevCallback(() => {});
     };
   }, [handleNext, handlePrev, handleSongEnd]);
 
-  // Update lock screen metadata whenever current song changes
+  // Update lock screen metadata
   useEffect(() => {
-    if (currentSong && currentSong.title) {
-      console.log('Updating lock screen metadata for:', currentSong.title);
+    if (currentSong?.title) {
+      console.log('[MusicPlayer] Updating lock screen metadata for:', currentSong.title);
       audioService.updateMediaMetadata(
         currentSong.title,
         currentSong.artist,
@@ -212,27 +206,24 @@ export default function MusicPlayer({
 
   // Preload image for lock screen
   useEffect(() => {
-    if (currentSong?.cover && currentSong?.cover !== '') {
+    if (currentSong?.cover) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        console.log('Image preloaded for lock screen:', currentSong.title);
-        setTimeout(() => {
-          audioService.updateMediaMetadata(
-            currentSong.title,
-            currentSong.artist,
-            currentSong.cover
-          );
-        }, 100);
+        audioService.updateMediaMetadata(
+          currentSong.title,
+          currentSong.artist,
+          currentSong.cover
+        );
       };
       img.src = currentSong.cover;
     }
   }, [currentSong]);
 
-  // Sync audio element with service
+  // Sync audio source
   useEffect(() => {
     if (currentSong?.src && isMounted.current) {
-      console.log('Setting audio source for new song:', currentSong.title);
+      console.log('[MusicPlayer] Setting audio source for:', currentSong.title);
       audioService.setSrc(currentSong.src);
     }
   }, [currentSong]);
@@ -242,12 +233,7 @@ export default function MusicPlayer({
     audioService.setVolume(volume);
   }, [volume]);
 
-  // Sync play state
-  useEffect(() => {
-    audioService.setPlaybackState(playing);
-  }, [playing]);
-
-  // Generate new shuffled queue
+  // Generate shuffled queue
   useEffect(() => {
     if (shuffle && currentQueue.length > 0) {
       const newShuffledQueue = [...currentQueue];
@@ -273,86 +259,72 @@ export default function MusicPlayer({
     }
   }, [shuffle, currentQueue, currentIndex]);
 
-  // Update shuffled index
-  useEffect(() => {
-    if (isShuffled && shuffledQueue.length > 0) {
-      const currentSongTitle = currentQueue[currentIndex];
-      const newIndex = shuffledQueue.findIndex(s => s === currentSongTitle);
-      if (newIndex !== -1 && newIndex !== shuffledIndex) {
-        setShuffledIndex(newIndex);
-      }
-    }
-  }, [currentIndex, currentQueue, isShuffled, shuffledQueue, shuffledIndex]);
-
-  // Load new song - with improved handling
+  // Load new song state
   useEffect(() => {
     if (!currentSong?.src) return;
     
     const wasPlaying = playing;
-    
-    console.log('Loading new song:', currentSong.title, 'wasPlaying:', wasPlaying);
+    console.log('[MusicPlayer] Loading new song:', currentSong.title, 'wasPlaying:', wasPlaying);
     
     setAudioLoaded(false);
     setIsLoading(true);
     setProgress(0);
     
-    // Set source on audio service
-    audioService.setSrc(currentSong.src);
-    
     const serviceAudio = audioService.getAudioElement();
     
     if (serviceAudio) {
-      const handleCanPlayThrough = () => {
-        console.log('Song can play through:', currentSong.title);
+      const handleCanPlay = () => {
         setAudioLoaded(true);
         setIsLoading(false);
-        setIsChangingSong(false);
         
-        const shouldAutoPlay = (hasUserInteracted || wasPlaying) && !audioService.isUserPausedState();
-        
-        if (shouldAutoPlay && !isChangingSong) {
-          console.log('Auto-playing next song:', currentSong.title);
+        if ((hasUserInteracted || wasPlaying) && !audioService.isUserPausedState()) {
           audioService.play();
           setPlaying(true);
         } else {
           setPlaying(false);
         }
         
-        serviceAudio.removeEventListener('canplaythrough', handleCanPlayThrough);
+        serviceAudio.removeEventListener('canplay', handleCanPlay);
       };
       
       const handleError = (e: Event) => {
-        console.error("Audio loading error for:", currentSong.title, e);
+        console.error("[MusicPlayer] Audio loading error:", e);
         setIsLoading(false);
-        setAudioLoaded(false);
-        setIsChangingSong(false);
       };
       
-      serviceAudio.addEventListener('canplaythrough', handleCanPlayThrough);
+      serviceAudio.addEventListener('canplay', handleCanPlay);
       serviceAudio.addEventListener('error', handleError);
       
       return () => {
-        serviceAudio.removeEventListener('canplaythrough', handleCanPlayThrough);
+        serviceAudio.removeEventListener('canplay', handleCanPlay);
         serviceAudio.removeEventListener('error', handleError);
       };
     }
-  }, [currentSong, hasUserInteracted, isChangingSong, playing]);
+  }, [currentSong, hasUserInteracted, playing]);
 
   // Update progress bar
   useEffect(() => {
-    const updateProgress = () => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
+    
+    progressIntervalRef.current = setInterval(() => {
       const audio = audioService.getAudioElement();
-      if (audio && audio.duration && isFinite(audio.duration) && !isNaN(audio.duration)) {
-        setProgress((audio.currentTime / audio.duration) * 100 || 0);
+      if (audio && audio.duration && isFinite(audio.duration) && !isNaN(audio.duration) && !audio.paused) {
+        const newProgress = (audio.currentTime / audio.duration) * 100;
+        setProgress(newProgress || 0);
+      }
+    }, 100);
+    
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
       }
     };
-    
-    const interval = setInterval(updateProgress, 100);
-    return () => clearInterval(interval);
   }, []);
 
   const togglePlay = useCallback(() => {
-    console.log('togglePlay called');
+    console.log('[MusicPlayer] togglePlay called');
     setHasUserInteracted(true);
     
     if (playing) {
@@ -400,45 +372,23 @@ export default function MusicPlayer({
     const newTime = percent * duration;
     if (isFinite(newTime) && !isNaN(newTime)) {
       audioService.setCurrentTime(newTime);
+      setProgress(percent * 100);
     }
   }, []);
-
-  const currentTime = audioService.getCurrentTime();
-  const duration = audioService.getDuration();
-  const isValidDuration = duration && isFinite(duration) && !isNaN(duration);
-
-  const getRepeatIcon = () => {
-    if (repeat === "one") {
-      return <Repeat size={16} className="md:w-4 md:h-4" />;
-    }
-    return <Repeat size={16} className="md:w-4 md:h-4" />;
-  };
 
   useEffect(() => {
     isMounted.current = true;
     return () => {
       isMounted.current = false;
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
     };
   }, []);
 
-  useEffect(() => {
-    const styleId = 'music-player-animations';
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = `
-        @keyframes spin {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
-        }
-      `;
-      document.head.appendChild(style);
-    }
-  }, []);
+  const currentTime = audioService.getCurrentTime();
+  const duration = audioService.getDuration();
+  const isValidDuration = duration && isFinite(duration) && !isNaN(duration);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto">
@@ -481,13 +431,11 @@ export default function MusicPlayer({
 
         {/* Main layout */}
         <div className="grid grid-cols-3 items-center gap-2 md:gap-4">
-          {/* LEFT - Rotating Photo + Song Info */}
           <div className="flex items-center gap-2 md:gap-3 justify-start min-w-0">
             <div
               className="flex-shrink-0"
               style={{
                 animation: playing && audioLoaded && !isLoading ? "spin 4s linear infinite" : "none",
-                willChange: "transform"
               }}
             >
               <div className="w-8 h-8 md:w-10 md:h-10 rounded-full overflow-hidden shadow-lg ring-2 ring-blue-500/30">
@@ -504,87 +452,64 @@ export default function MusicPlayer({
             </div>
           </div>
 
-          {/* CENTER - Controls */}
           <div className="flex items-center justify-center gap-2 md:gap-4">
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={() => setShuffle(!shuffle)}
               className={`p-1.5 md:p-2 rounded-full transition-all duration-200 ${
                 shuffle ? "text-blue-400 bg-blue-500/20" : "text-white/60 hover:text-white hover:bg-white/10"
               }`}
-              aria-label="Shuffle"
             >
-              <Shuffle size={14} className="md:w-4 md:h-4" />
-            </motion.button>
+              <Shuffle size={16} className="md:w-4 md:h-4" />
+            </button>
             
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={handlePrev}
               className="p-1.5 md:p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-all"
-              aria-label="Previous"
             >
-              <SkipBack size={16} className="md:w-5 md:h-5" />
-            </motion.button>
+              <SkipBack size={18} className="md:w-5 md:h-5" />
+            </button>
             
-            {/* Play/Pause Button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              animate={{ scale: playing && !isLoading ? [1, 1.05, 1] : 1 }}
-              transition={{ duration: 0.3, repeat: playing && !isLoading ? Infinity : 0, repeatDelay: 2 }}
+            <button
               onClick={togglePlay}
               disabled={isLoading}
               className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition-all duration-200 flex items-center justify-center shadow-lg shadow-blue-500/30 flex-shrink-0 disabled:opacity-50"
-              aria-label={playing ? "Pause" : "Play"}
             >
               {isLoading ? (
                 <div className="w-4 h-4 md:w-5 md:h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : playing ? (
-                <Pause size={16} className="md:w-5 md:h-5 text-white" />
+                <Pause size={18} className="md:w-5 md:h-5 text-white" />
               ) : (
-                <Play size={16} className="ml-0.5 md:w-5 md:h-5 text-white" />
+                <Play size={18} className="ml-0.5 md:w-5 md:h-5 text-white" />
               )}
-            </motion.button>
+            </button>
             
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={handleNext}
               className="p-1.5 md:p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-all"
-              aria-label="Next"
             >
-              <SkipForward size={16} className="md:w-5 md:h-5" />
-            </motion.button>
+              <SkipForward size={18} className="md:w-5 md:h-5" />
+            </button>
             
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={toggleRepeat}
               className={`p-1.5 md:p-2 rounded-full transition-all duration-200 relative ${
                 repeat !== "off" ? "text-blue-400 bg-blue-500/20" : "text-white/60 hover:text-white hover:bg-white/10"
               }`}
-              aria-label="Repeat"
             >
-              {getRepeatIcon()}
+              <Repeat size={16} className="md:w-4 md:h-4" />
               {repeat === "one" && (
                 <span className="absolute -top-1 -right-1 text-[8px] font-bold">1</span>
               )}
-            </motion.button>
+            </button>
           </div>
 
-          {/* RIGHT - Volume */}
           <div className="hidden lg:flex items-center gap-2 justify-end">
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={toggleMute}
               className="p-1.5 md:p-2 rounded-full hover:bg-white/10 transition"
-              aria-label="Volume"
             >
-              {volume === 0 ? <VolumeX size={14} className="text-blue-400" /> : <Volume2 size={14} className="text-blue-400" />}
-            </motion.button>
+              {volume === 0 ? <VolumeX size={16} className="text-blue-400" /> : <Volume2 size={16} className="text-blue-400" />}
+            </button>
             <input
               type="range"
               min="0"
@@ -593,20 +518,24 @@ export default function MusicPlayer({
               value={volume}
               onChange={(e) => setVolume(Number(e.target.value))}
               className="w-20 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
-              aria-label="Volume slider"
             />
           </div>
 
-          {/* Mobile placeholder */}
           <div className="flex lg:hidden" />
         </div>
 
-        {/* Mobile song info below controls */}
         <div className="sm:hidden text-center mt-2">
           <h3 className="font-medium text-xs truncate text-white">{currentSong.title}</h3>
           <p className="text-blue-300/70 text-[10px] truncate">{currentSong.artist}</p>
         </div>
       </div>
+      
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

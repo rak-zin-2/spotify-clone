@@ -1,5 +1,5 @@
 // app/layout.tsx
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import AuthGuard from "@/components/AuthGuard";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
@@ -31,8 +31,7 @@ export const metadata: Metadata = {
   },
 };
 
-// Add separate viewport export (required for Next.js 16+)
-export const viewport = {
+export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
