@@ -10,107 +10,71 @@ class AudioService {
   private nextSrc: string | null = null;
   private retryCount = 0;
   private maxRetries = 2;
-  private backgroundPlaybackEnabled = true;
   private wakeLock: any = null;
   private audioContext: AudioContext | null = null;
   private isLoading = false;
   private loadTimeout: NodeJS.Timeout | null = null;
-  private isSwitchingSong = false;
-  private shouldAutoPlayNext = true; // CRITICAL: Track if next song should auto-play
 
   constructor() {
     if (typeof window !== 'undefined') {
       this.init();
-      this.setupPWABackgroundPlayback();
+      this.setupBackgroundPlayback();
     }
   }
 
   private init() {
-    // Main audio element
     this.audioElement = new Audio();
     this.audioElement.crossOrigin = 'anonymous';
     this.audioElement.preload = 'auto';
     this.audioElement.setAttribute('playsinline', 'true');
-    
-    // CRITICAL: Enable background playback on iOS
     this.audioElement.setAttribute('webkit-playsinline', 'true');
     
-    // Enable audio session for background playback
     if ('audioSession' in this.audioElement) {
       (this.audioElement as any).audioSession.type = 'playback';
     }
     
-    // Preload element for next song
     this.preloadElement = new Audio();
     this.preloadElement.crossOrigin = 'anonymous';
     this.preloadElement.preload = 'auto';
     this.preloadElement.volume = 0;
     this.preloadElement.setAttribute('playsinline', 'true');
     
-    // Setup media session for lock screen controls
     if ('mediaSession' in navigator) {
       this.setupMediaSession();
     }
     
     this.setupAudioElementEvents();
-    this.setupBackgroundHandlers();
-    this.setupPWAMediaSession();
   }
 
   private setupAudioElementEvents() {
     if (!this.audioElement) return;
     
-    // CRITICAL FIX: When audio ends, mark that next song should auto-play
-    const endedHandler = () => {
-      console.log('[AudioService] Audio ended - marking next song for auto-play');
+    // CRITICAL: When audio ends, call the callback
+    this.audioElement.onended = () => {
+      console.log('[AudioService] Audio ended');
       this.isLoading = false;
-      this.isSwitchingSong = false;
-      
-      // CRITICAL: Set this flag to true so the next song auto-plays
-      this.shouldAutoPlayNext = true;
-      
-      // Call the callback to change to next song
       if (this.onEndCallback) {
-        console.log('[AudioService] Calling onEndCallback to load next song');
+        console.log('[AudioService] Calling onEndCallback');
         this.onEndCallback();
       }
-    };
-    
-    this.audioElement.onended = endedHandler;
-    this.audioElement.addEventListener('ended', endedHandler);
-    
-    this.audioElement.oncanplay = () => {
-      console.log('[AudioService] Can play');
-      this.isLoading = false;
-      this.isSwitchingSong = false;
     };
     
     this.audioElement.oncanplaythrough = () => {
       console.log('[AudioService] Can play through');
       this.isLoading = false;
-      this.isSwitchingSong = false;
-    };
-    
-    this.audioElement.onloadeddata = () => {
-      console.log('[AudioService] Data loaded');
-      this.isLoading = false;
-      this.isSwitchingSong = false;
     };
     
     this.audioElement.onerror = (e) => {
       console.error('[AudioService] Audio error:', e);
       this.isLoading = false;
-      this.isSwitchingSong = false;
       if (this.retryCount < this.maxRetries) {
         this.retryCount++;
         setTimeout(() => {
           if (this.currentSrc && this.audioElement) {
             this.audioElement.load();
-            setTimeout(() => this.play(), 200);
           }
         }, 500);
       } else if (this.onEndCallback) {
-        this.shouldAutoPlayNext = true;
         this.onEndCallback();
       }
     };
@@ -120,8 +84,7 @@ class AudioService {
     };
   }
 
-  // Special setup for PWA background playback
-  private setupPWABackgroundPlayback() {
+  private setupBackgroundPlayback() {
     if (typeof window === 'undefined') return;
     
     try {
@@ -140,13 +103,11 @@ class AudioService {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
         console.log('[AudioService] App in background, continuing playback');
-        this.keepAudioAlive();
       }
     });
     
     window.addEventListener('pagehide', () => {
       if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
-        console.log('[AudioService] Page hiding, maintaining background playback');
         localStorage.setItem('pavpav_was_playing', 'true');
       }
     });
@@ -167,10 +128,6 @@ class AudioService {
         try {
           this.wakeLock = await (navigator as any).wakeLock.request('screen');
           console.log('[AudioService] Wake lock acquired');
-          
-          this.wakeLock.addEventListener('release', () => {
-            console.log('[AudioService] Wake lock released');
-          });
         } catch (err) {
           console.log('[AudioService] Wake lock error:', err);
         }
@@ -197,24 +154,10 @@ class AudioService {
     }
   }
 
-  private keepAudioAlive() {
-    if (this.audioContext && this.audioContext.state === 'suspended') {
-      this.audioContext.resume().then(() => {
-        const oscillator = this.audioContext!.createOscillator();
-        const gain = this.audioContext!.createGain();
-        gain.gain.value = 0;
-        oscillator.connect(gain);
-        gain.connect(this.audioContext!.destination);
-        oscillator.start();
-        oscillator.stop(0.1);
-      }).catch(e => console.log('AudioContext resume failed:', e));
-    }
-  }
-
   preloadNextSong(src: string) {
     if (!src || src === this.currentSrc) return;
     
-    console.log('[AudioService] Preloading next song:', src.substring(0, 80));
+    console.log('[AudioService] Preloading next song');
     this.nextSrc = src;
     
     if (this.preloadElement) {
@@ -224,55 +167,18 @@ class AudioService {
     }
   }
 
-  isNextSongReady(): boolean {
-    return this.preloadElement ? this.preloadElement.readyState >= 2 : false;
-  }
-
-  switchToPreloaded(src: string): boolean {
-    if (this.nextSrc === src && this.preloadElement && this.preloadElement.readyState >= 2) {
-      console.log('[AudioService] Switching to preloaded song instantly');
-      
-      const tempAudio = this.audioElement;
-      this.audioElement = this.preloadElement;
-      this.preloadElement = tempAudio;
-      
-      if (this.preloadElement) {
-        this.preloadElement.src = '';
-        this.preloadElement.load();
-      }
-      
-      this.currentSrc = src;
-      this.nextSrc = null;
-      this.isLoading = false;
-      this.isSwitchingSong = false;
-      this.setupAudioElementEvents();
-      
-      // CRITICAL: Auto-play the preloaded song if shouldAutoPlayNext is true
-      if (this.shouldAutoPlayNext && this.audioElement && !this.isUserPaused) {
-        console.log('[AudioService] Auto-playing preloaded song');
-        setTimeout(() => {
-          this.audioElement?.play().catch(e => console.error('Play after swap failed:', e));
-        }, 50);
-      }
-      
-      return true;
-    }
-    return false;
-  }
-
   private updatePositionState() {
     if (!('mediaSession' in navigator) || !this.audioElement) return;
     
     const duration = this.audioElement.duration;
     const position = this.audioElement.currentTime;
-    const playbackRate = this.audioElement.playbackRate;
     
     if (duration && isFinite(duration) && !isNaN(duration) && duration > 0) {
       try {
         (navigator.mediaSession as any).setPositionState({
           duration: duration,
           position: position,
-          playbackRate: playbackRate
+          playbackRate: 1
         });
       } catch (e) {}
     }
@@ -284,14 +190,12 @@ class AudioService {
     navigator.mediaSession.setActionHandler('play', () => {
       console.log('[AudioService] Lock screen: Play');
       this.isUserPaused = false;
-      this.shouldAutoPlayNext = true;
       this.play();
     });
     
     navigator.mediaSession.setActionHandler('pause', () => {
       console.log('[AudioService] Lock screen: Pause');
       this.isUserPaused = true;
-      this.shouldAutoPlayNext = false;
       this.pause();
     });
     
@@ -312,7 +216,6 @@ class AudioService {
           this.audioElement.currentTime + seekTime,
           this.audioElement.duration
         );
-        this.updatePositionState();
       }
     });
     
@@ -323,7 +226,6 @@ class AudioService {
           this.audioElement.currentTime - seekTime,
           0
         );
-        this.updatePositionState();
       }
     });
     
@@ -334,55 +236,9 @@ class AudioService {
             Math.max(details.seekTime, 0),
             this.audioElement.duration
           );
-          this.updatePositionState();
         }
       });
-    } catch (e) {
-      console.log('[AudioService] seekto handler not supported');
-    }
-  }
-
-  private setupPWAMediaSession() {
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && 'mediaSession' in navigator) {
-        setTimeout(() => {
-          this.updateMediaMetadata(
-            this.currentTitle || 'PavPav',
-            this.currentArtist || 'Music',
-            this.currentArtwork || ''
-          );
-          this.updatePositionState();
-          
-          navigator.mediaSession.setActionHandler('play', () => {
-            this.isUserPaused = false;
-            this.play();
-          });
-          navigator.mediaSession.setActionHandler('pause', () => {
-            this.isUserPaused = true;
-            this.pause();
-          });
-          navigator.mediaSession.setActionHandler('previoustrack', () => {
-            if (this.onPrevCallback) this.onPrevCallback();
-          });
-          navigator.mediaSession.setActionHandler('nexttrack', () => {
-            if (this.onNextCallback) this.onNextCallback();
-          });
-        }, 100);
-      }
-    });
-  }
-
-  private setupBackgroundHandlers() {
-    if (typeof window === 'undefined') return;
-    
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
-        console.log('[AudioService] Page visible, ensuring playback continues');
-        if (this.audioElement.paused) {
-          this.play();
-        }
-      }
-    });
+    } catch (e) {}
   }
 
   private onNextCallback: (() => void) | null = null;
@@ -393,24 +249,10 @@ class AudioService {
 
   setNextCallback(callback: () => void) {
     this.onNextCallback = callback;
-    this.updateMediaSessionHandlers();
   }
 
   setPrevCallback(callback: () => void) {
     this.onPrevCallback = callback;
-    this.updateMediaSessionHandlers();
-  }
-
-  private updateMediaSessionHandlers() {
-    if (!('mediaSession' in navigator)) return;
-    
-    navigator.mediaSession.setActionHandler('nexttrack', () => {
-      if (this.onNextCallback) this.onNextCallback();
-    });
-    
-    navigator.mediaSession.setActionHandler('previoustrack', () => {
-      if (this.onPrevCallback) this.onPrevCallback();
-    });
   }
 
   setOnEndCallback(callback: () => void) {
@@ -418,7 +260,8 @@ class AudioService {
     this.onEndCallback = callback;
   }
 
-  setSrc(src: string, skipPreloadCheck: boolean = false) {
+  // CRITICAL: setSrc with auto-play when needed
+  setSrc(src: string) {
     if (!src || src === '') {
       console.error('[AudioService] Invalid audio source');
       return;
@@ -429,55 +272,44 @@ class AudioService {
       this.loadTimeout = null;
     }
     
-    if (!skipPreloadCheck && this.switchToPreloaded(src)) {
-      return;
-    }
-    
-    console.log('[AudioService] Setting audio source:', src.substring(0, 80));
-    console.log('[AudioService] shouldAutoPlayNext:', this.shouldAutoPlayNext);
+    console.log('[AudioService] Setting audio source');
     this.currentSrc = src;
     this.retryCount = 0;
     this.isLoading = true;
-    this.isSwitchingSong = true;
     
     if (!this.audioElement) return;
     
+    const wasPlaying = !this.audioElement.paused;
+    
     this.audioElement.src = src;
     this.audioElement.load();
-    this.updatePositionState();
     
     this.loadTimeout = setTimeout(() => {
-      console.log('[AudioService] Loading timeout, clearing loading state');
+      console.log('[AudioService] Loading timeout');
       this.isLoading = false;
-      this.isSwitchingSong = false;
       this.loadTimeout = null;
     }, 3000);
     
-    // CRITICAL: Auto-play if shouldAutoPlayNext is true
-    if (this.shouldAutoPlayNext && !this.isUserPaused) {
-      console.log('[AudioService] Auto-playing new song (shouldAutoPlayNext=true)');
+    // CRITICAL: Auto-play if it was playing before OR if user didn't pause
+    // This ensures next song auto-plays
+    if (wasPlaying && !this.isUserPaused) {
+      console.log('[AudioService] Auto-playing after load (was playing)');
       const tryPlay = () => {
         if (this.audioElement && this.audioElement.readyState >= 2) {
-          console.log('[AudioService] Audio ready, playing now');
           this.audioElement.play()
-            .then(() => {
-              console.log('[AudioService] Auto-play successful');
-              this.isUserPaused = false;
-            })
+            .then(() => console.log('[AudioService] Auto-play successful'))
             .catch(e => console.error('[AudioService] Auto-play failed:', e));
           this.isLoading = false;
-          this.isSwitchingSong = false;
           this.audioElement.removeEventListener('canplaythrough', tryPlay);
         }
       };
       this.audioElement.addEventListener('canplaythrough', tryPlay);
       setTimeout(tryPlay, 300);
     } else {
-      console.log('[AudioService] Not auto-playing (shouldAutoPlayNext=false or user paused)');
+      console.log('[AudioService] Not auto-playing (wasPlaying=false or user paused)');
       setTimeout(() => {
         if (this.isLoading) {
           this.isLoading = false;
-          this.isSwitchingSong = false;
         }
       }, 1000);
     }
@@ -497,11 +329,6 @@ class AudioService {
     
     this.isLoading = false;
     this.isUserPaused = false;
-    this.shouldAutoPlayNext = true;
-    
-    if (this.audioElement.currentTime >= this.audioElement.duration && this.audioElement.duration > 0) {
-      this.audioElement.currentTime = 0;
-    }
     
     const playPromise = this.audioElement.play();
     if (playPromise !== undefined) {
@@ -509,7 +336,6 @@ class AudioService {
         .then(() => {
           console.log('[AudioService] Play successful');
           this.setPlaybackState(true);
-          this.updatePositionState();
         })
         .catch(error => {
           console.error('[AudioService] Play failed:', error);
@@ -521,9 +347,8 @@ class AudioService {
     if (this.audioElement) {
       this.audioElement.pause();
       this.isUserPaused = true;
-      this.shouldAutoPlayNext = false;
       this.setPlaybackState(false);
-      console.log('[AudioService] Paused by user');
+      console.log('[AudioService] Paused');
     }
   }
 
@@ -536,7 +361,6 @@ class AudioService {
   setCurrentTime(time: number) {
     if (this.audioElement && this.audioElement.duration && !isNaN(this.audioElement.duration)) {
       this.audioElement.currentTime = time;
-      this.updatePositionState();
     }
   }
 
@@ -559,11 +383,6 @@ class AudioService {
   resetUserPauseState() {
     console.log('[AudioService] Resetting user pause state');
     this.isUserPaused = false;
-    this.shouldAutoPlayNext = true;
-  }
-  
-  isLoadingState(): boolean {
-    return this.isLoading;
   }
 
   updateMediaMetadata(title: string, artist: string, artworkUrl: string) {
@@ -593,9 +412,6 @@ class AudioService {
         album: 'PavPav',
         artwork: artwork
       });
-      
-      this.updatePositionState();
-      this.updateMediaSessionHandlers();
     }
   }
 

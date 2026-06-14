@@ -48,7 +48,6 @@ export default function MusicPlayer({
   const [previousVolume, setPreviousVolume] = useState(0.8);
   const [isLoading, setIsLoading] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
-  const [hasUserInteracted, setHasUserInteracted] = useState(false);
   
   const [shuffledQueue, setShuffledQueue] = useState<string[]>([]);
   const [shuffledIndex, setShuffledIndex] = useState(0);
@@ -56,9 +55,8 @@ export default function MusicPlayer({
 
   const isMounted = useRef(true);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const songChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Preload next song when current song changes
+  // Preload next song
   useEffect(() => {
     if (!currentQueue.length || currentIndex === undefined) return;
     
@@ -75,14 +73,12 @@ export default function MusicPlayer({
     const nextSong = songs.find(s => s.title === nextSongTitle);
     
     if (nextSong?.src) {
-      console.log('[MusicPlayer] Preloading next song:', nextSong.title);
       audioService.preloadNextSong(nextSong.src);
     }
   }, [currentIndex, currentQueue, songs, repeat]);
 
-  // CRITICAL FIX: handleNext must ensure auto-play
   const handleNext = useCallback(() => {
-    console.log('[MusicPlayer] handleNext called, repeat:', repeat);
+    console.log('[MusicPlayer] handleNext called');
     
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
@@ -94,7 +90,7 @@ export default function MusicPlayer({
       return;
     }
 
-    // CRITICAL: Reset user pause state to ensure next song auto-plays
+    // Reset user pause state so next song auto-plays
     audioService.resetUserPauseState();
 
     if (isShuffled && shuffledQueue.length > 0) {
@@ -121,7 +117,6 @@ export default function MusicPlayer({
         }
       }
     } else {
-      // This will trigger parent to update the song
       onNext();
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext]);
@@ -171,33 +166,21 @@ export default function MusicPlayer({
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
 
-  // CRITICAL FIX: handleSongEnd - this is called when current song ends
+  // CRITICAL: This handles song end and triggers next song with auto-play
   const handleSongEnd = useCallback(() => {
-    console.log('[MusicPlayer] handleSongEnd called - song finished');
-    
+    console.log('[MusicPlayer] handleSongEnd - song finished, going to next');
     if (!isMounted.current) return;
     
-    if (songChangeTimeoutRef.current) {
-      clearTimeout(songChangeTimeoutRef.current);
-    }
-    
-    songChangeTimeoutRef.current = setTimeout(() => {
-      if (!isMounted.current) return;
-      
-      if (repeat === "one") {
-        const audio = audioService.getAudioElement();
-        if (audio) {
-          audio.currentTime = 0;
-          audio.play().catch(e => console.error('Replay failed:', e));
-          setPlaying(true);
-        }
-      } else {
-        // CRITICAL: Call handleNext to go to next song
-        // handleNext will reset user pause state and trigger the next song
-        console.log('[MusicPlayer] Song ended, calling handleNext');
-        handleNext();
+    if (repeat === "one") {
+      const audio = audioService.getAudioElement();
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(e => console.error('Replay failed:', e));
+        setPlaying(true);
       }
-    }, 50);
+    } else {
+      handleNext();
+    }
   }, [repeat, handleNext]);
 
   // Initialize audio service callbacks
@@ -205,12 +188,12 @@ export default function MusicPlayer({
     console.log('[MusicPlayer] Setting up audio service callbacks');
     
     audioService.setNextCallback(() => {
-      console.log('[MusicPlayer] Next track from lock screen');
+      console.log('[MusicPlayer] Next from lock screen');
       handleNext();
     });
     
     audioService.setPrevCallback(() => {
-      console.log('[MusicPlayer] Previous track from lock screen');
+      console.log('[MusicPlayer] Previous from lock screen');
       handlePrev();
     });
     
@@ -237,21 +220,18 @@ export default function MusicPlayer({
     }
   }, [currentSong]);
 
-  // CRITICAL FIX: When new song is loaded, auto-play if we were playing
+  // Handle new song source
   useEffect(() => {
     if (!currentSong?.src) return;
     
-    console.log('[MusicPlayer] Setting up audio for:', currentSong.title);
+    console.log('[MusicPlayer] Loading new song:', currentSong.title);
     
-    // Reset loading states
     setIsLoading(true);
     setAudioLoaded(false);
     setProgress(0);
     
-    // Set the source - AudioService will auto-play if shouldAutoPlayNext is true
     audioService.setSrc(currentSong.src);
     
-    // Check loading state periodically
     const checkInterval = setInterval(() => {
       const audio = audioService.getAudioElement();
       if (audio && audio.readyState >= 2) {
@@ -261,7 +241,6 @@ export default function MusicPlayer({
       }
     }, 100);
     
-    // Timeout to force clear loading
     const timeout = setTimeout(() => {
       setIsLoading(false);
       setAudioLoaded(true);
@@ -274,14 +253,13 @@ export default function MusicPlayer({
     };
   }, [currentSong]);
 
-  // Sync play/pause state with audio element
+  // Sync play/pause state
   useEffect(() => {
     const audio = audioService.getAudioElement();
     if (!audio) return;
     
     const handlePlay = () => {
       if (isMounted.current) {
-        console.log('[MusicPlayer] Audio play event');
         setPlaying(true);
         setIsLoading(false);
       }
@@ -289,36 +267,16 @@ export default function MusicPlayer({
     
     const handlePause = () => {
       if (isMounted.current) {
-        console.log('[MusicPlayer] Audio pause event');
         setPlaying(false);
-      }
-    };
-    
-    const handleWaiting = () => {
-      if (isMounted.current) {
-        console.log('[MusicPlayer] Audio waiting event');
-        setIsLoading(true);
-      }
-    };
-    
-    const handlePlaying = () => {
-      if (isMounted.current) {
-        console.log('[MusicPlayer] Audio playing event');
-        setIsLoading(false);
-        setPlaying(true);
       }
     };
     
     audio.addEventListener('play', handlePlay);
     audio.addEventListener('pause', handlePause);
-    audio.addEventListener('waiting', handleWaiting);
-    audio.addEventListener('playing', handlePlaying);
     
     return () => {
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
-      audio.removeEventListener('waiting', handleWaiting);
-      audio.removeEventListener('playing', handlePlaying);
     };
   }, []);
 
@@ -362,8 +320,7 @@ export default function MusicPlayer({
     progressIntervalRef.current = setInterval(() => {
       const audio = audioService.getAudioElement();
       if (audio && audio.duration && isFinite(audio.duration) && !isNaN(audio.duration) && audio.duration > 0 && !audio.paused) {
-        const newProgress = (audio.currentTime / audio.duration) * 100;
-        setProgress(newProgress || 0);
+        setProgress((audio.currentTime / audio.duration) * 100 || 0);
       }
     }, 100);
     
@@ -375,8 +332,7 @@ export default function MusicPlayer({
   }, []);
 
   const togglePlay = useCallback(() => {
-    console.log('[MusicPlayer] togglePlay called, current playing:', playing);
-    setHasUserInteracted(true);
+    console.log('[MusicPlayer] togglePlay');
     
     if (playing) {
       audioService.pause();
@@ -432,17 +388,12 @@ export default function MusicPlayer({
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
       }
-      if (songChangeTimeoutRef.current) {
-        clearTimeout(songChangeTimeoutRef.current);
-      }
     };
   }, []);
 
   const currentTime = audioService.getCurrentTime();
   const duration = audioService.getDuration();
   const isValidDuration = duration && isFinite(duration) && !isNaN(duration) && duration > 0;
-
-  // Don't show loading spinner unnecessarily
   const showLoading = isLoading && !audioLoaded;
 
   return (
