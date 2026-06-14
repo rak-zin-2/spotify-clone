@@ -6,6 +6,7 @@ class AudioService {
   private audioElement: HTMLAudioElement | null = null;
   private onEndCallback: (() => void) | null = null;
   private isUserPaused = false;
+  private currentSrc: string = '';
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -34,14 +35,22 @@ class AudioService {
           this.onEndCallback();
         }
       };
+      
+      // Handle errors during playback
+      this.audioElement.onerror = (e) => {
+        console.error('Audio element error:', e);
+        // Try to skip to next song on error
+        if (this.onEndCallback && !this.isUserPaused) {
+          console.log('Error occurred, skipping to next song');
+          this.onEndCallback();
+        }
+      };
     }
   }
 
   private setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
     
-    // ONLY standard lock screen controls - NO seekbackward/seekforward
-    // This shows: Previous Track | Play/Pause | Next Track
     navigator.mediaSession.setActionHandler('play', () => {
       console.log('Lock screen: Play pressed');
       this.isUserPaused = false;
@@ -65,9 +74,6 @@ class AudioService {
       this.isUserPaused = false;
       if (this.onNextCallback) this.onNextCallback();
     });
-    
-    // IMPORTANT: No seekbackward or seekforward handlers!
-    // This ensures the lock screen shows song change buttons, not 10-second skip buttons
   }
 
   private setupLockScreenControls() {
@@ -112,33 +118,74 @@ class AudioService {
   }
 
   setSrc(src: string) {
+    if (!src || src === '') {
+      console.error('Invalid audio source:', src);
+      return;
+    }
+    
+    console.log('Setting audio source:', src);
+    this.currentSrc = src;
+    
     if (this.audioElement) {
       const wasPlaying = !this.audioElement.paused;
+      
+      // Store the current time and playing state
+      const shouldAutoPlay = (wasPlaying || !this.isUserPaused) && !this.isUserPaused;
+      
+      // Set new source
       this.audioElement.src = src;
       this.audioElement.load();
       
-      if ((wasPlaying || !this.isUserPaused) && !this.isUserPaused) {
-        setTimeout(() => {
+      // Clear any pending play attempts
+      if (this.loadTimeout) {
+        clearTimeout(this.loadTimeout);
+      }
+      
+      // Attempt to play after loading
+      if (shouldAutoPlay) {
+        this.loadTimeout = setTimeout(() => {
           this.play();
         }, 100);
       }
     }
   }
+  
+  private loadTimeout: NodeJS.Timeout | null = null;
 
   play() {
-    if (this.audioElement) {
-      const playPromise = this.audioElement.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            console.log('Audio playing successfully');
-            this.isUserPaused = false;
-            this.setPlaybackState(true);
-          })
-          .catch(error => {
-            console.log('Play was prevented:', error);
-          });
-      }
+    if (!this.audioElement) {
+      console.error('No audio element');
+      return;
+    }
+    
+    if (!this.audioElement.src || this.audioElement.src === '') {
+      console.error('No audio source set');
+      return;
+    }
+    
+    console.log('Attempting to play audio, current src:', this.audioElement.src);
+    
+    const playPromise = this.audioElement.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          console.log('Audio playing successfully');
+          this.isUserPaused = false;
+          this.setPlaybackState(true);
+        })
+        .catch(error => {
+          console.error('Play failed:', error);
+          // If play fails, it might be because the audio isn't loaded yet
+          // Try again after a short delay
+          if (error.name === 'NotAllowedError') {
+            console.log('Play was prevented by browser, waiting for user interaction');
+          } else if (error.name === 'NotSupportedError') {
+            console.error('Audio format not supported, skipping to next song');
+            if (this.onEndCallback && !this.isUserPaused) {
+              this.onEndCallback();
+            }
+          }
+        });
     }
   }
 
@@ -158,7 +205,7 @@ class AudioService {
   }
 
   setCurrentTime(time: number) {
-    if (this.audioElement) {
+    if (this.audioElement && this.audioElement.duration && !isNaN(this.audioElement.duration)) {
       this.audioElement.currentTime = time;
     }
   }
@@ -183,7 +230,6 @@ class AudioService {
     this.isUserPaused = false;
   }
 
-  // Update lock screen with album art, title, and artist
   updateMediaMetadata(title: string, artist: string, artworkUrl: string) {
     console.log('Updating lock screen metadata:', { title, artist, artworkUrl });
     
@@ -224,6 +270,18 @@ class AudioService {
 
   getAudioElement(): HTMLAudioElement | null {
     return this.audioElement;
+  }
+  
+  // Cleanup method
+  destroy() {
+    if (this.loadTimeout) {
+      clearTimeout(this.loadTimeout);
+    }
+    if (this.audioElement) {
+      this.audioElement.pause();
+      this.audioElement.src = '';
+      this.audioElement.load();
+    }
   }
 }
 
