@@ -59,14 +59,24 @@ class AudioService {
   private setupAudioElementEvents() {
     if (!this.audioElement) return;
     
-    this.audioElement.onended = () => {
-      console.log('[AudioService] Audio ended');
+    // CRITICAL FIX: Use both onended and addEventListener for redundancy
+    const endedHandler = () => {
+      console.log('[AudioService] Audio ended - triggering next song');
       this.isLoading = false;
       this.isSwitchingSong = false;
+      
+      // Always call onEndCallback when audio ends naturally
+      // This will trigger the next song
       if (this.onEndCallback) {
+        console.log('[AudioService] Calling onEndCallback for next song');
         this.onEndCallback();
+      } else {
+        console.log('[AudioService] Warning: onEndCallback is null');
       }
     };
+    
+    this.audioElement.onended = endedHandler;
+    this.audioElement.addEventListener('ended', endedHandler);
     
     this.audioElement.oncanplay = () => {
       console.log('[AudioService] Can play');
@@ -99,6 +109,8 @@ class AudioService {
           }
         }, 500);
       } else if (this.onEndCallback) {
+        // On error, also try to go to next song
+        console.log('[AudioService] Error occurred, skipping to next song');
         this.onEndCallback();
       }
     };
@@ -113,13 +125,11 @@ class AudioService {
     if (typeof window === 'undefined') return;
     
     // Create a silent AudioContext to keep the audio session alive
-    // This helps maintain background playback on some devices
     try {
       // @ts-ignore
       window.AudioContext = window.AudioContext || window.webkitAudioContext;
       if (window.AudioContext) {
         this.audioContext = new AudioContext();
-        // Keep context suspended until needed
         this.audioContext.suspend();
       }
     } catch (e) {
@@ -137,11 +147,10 @@ class AudioService {
       }
     });
     
-    // Handle page hide (when app is swiped away or home button pressed)
+    // Handle page hide
     window.addEventListener('pagehide', () => {
       if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
         console.log('[AudioService] Page hiding, maintaining background playback');
-        // Store state to resume
         localStorage.setItem('pavpav_was_playing', 'true');
       }
     });
@@ -157,7 +166,6 @@ class AudioService {
   }
 
   private setupWakeLock() {
-    // Request wake lock to prevent device sleep during playback
     const requestWakeLock = async () => {
       if ('wakeLock' in navigator && this.audioElement && !this.audioElement.paused) {
         try {
@@ -180,7 +188,6 @@ class AudioService {
       }
     };
     
-    // Request wake lock when playing starts
     if (this.audioElement) {
       const originalPlay = this.audioElement.play;
       this.audioElement.play = function() {
@@ -195,13 +202,11 @@ class AudioService {
   }
 
   private keepAudioAlive() {
-    // This creates a silent oscillator to keep the audio context alive
-    // Helps maintain background playback on some browsers
     if (this.audioContext && this.audioContext.state === 'suspended') {
       this.audioContext.resume().then(() => {
         const oscillator = this.audioContext!.createOscillator();
         const gain = this.audioContext!.createGain();
-        gain.gain.value = 0; // Silent
+        gain.gain.value = 0;
         oscillator.connect(gain);
         gain.connect(this.audioContext!.destination);
         oscillator.start();
@@ -279,7 +284,6 @@ class AudioService {
   private setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
     
-    // Standard MediaSession actions - these are all valid
     navigator.mediaSession.setActionHandler('play', () => {
       console.log('[AudioService] Lock screen: Play');
       this.isUserPaused = false;
@@ -303,11 +307,11 @@ class AudioService {
     });
     
     navigator.mediaSession.setActionHandler('seekforward', (details) => {
-      if (this.audioElement) {
+      if (this.audioElement && this.audioElement.duration) {
         const seekTime = (details.seekOffset || 15);
         this.audioElement.currentTime = Math.min(
           this.audioElement.currentTime + seekTime,
-          this.audioElement.duration || 0
+          this.audioElement.duration
         );
         this.updatePositionState();
       }
@@ -324,13 +328,12 @@ class AudioService {
       }
     });
     
-    // seekto is supported in modern browsers
     try {
       (navigator.mediaSession as any).setActionHandler('seekto', (details: any) => {
-        if (this.audioElement && details.seekTime !== undefined) {
+        if (this.audioElement && details.seekTime !== undefined && this.audioElement.duration) {
           this.audioElement.currentTime = Math.min(
             Math.max(details.seekTime, 0),
-            this.audioElement.duration || 0
+            this.audioElement.duration
           );
           this.updatePositionState();
         }
@@ -341,7 +344,6 @@ class AudioService {
   }
 
   private setupPWAMediaSession() {
-    // Re-register media session handlers when app comes to foreground
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && 'mediaSession' in navigator) {
         setTimeout(() => {
@@ -352,7 +354,6 @@ class AudioService {
           );
           this.updatePositionState();
           
-          // Re-register all handlers
           navigator.mediaSession.setActionHandler('play', () => {
             this.isUserPaused = false;
             this.play();
@@ -375,11 +376,9 @@ class AudioService {
   private setupBackgroundHandlers() {
     if (typeof window === 'undefined') return;
     
-    // Handle when page becomes visible again
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
         console.log('[AudioService] Page visible, ensuring playback continues');
-        // Ensure audio is still playing
         if (this.audioElement.paused) {
           this.play();
         }
@@ -416,23 +415,21 @@ class AudioService {
   }
 
   setOnEndCallback(callback: () => void) {
+    console.log('[AudioService] Setting onEndCallback');
     this.onEndCallback = callback;
   }
 
-  // FIXED: setSrc with proper loading state management
   setSrc(src: string, skipPreloadCheck: boolean = false) {
     if (!src || src === '') {
       console.error('[AudioService] Invalid audio source');
       return;
     }
     
-    // Clear any existing timeout
     if (this.loadTimeout) {
       clearTimeout(this.loadTimeout);
       this.loadTimeout = null;
     }
     
-    // Try to use preloaded song first
     if (!skipPreloadCheck && this.switchToPreloaded(src)) {
       return;
     }
@@ -446,14 +443,11 @@ class AudioService {
     if (!this.audioElement) return;
     
     const wasPlaying = !this.audioElement.paused;
-    const savedTime = this.audioElement.currentTime;
     
-    // Set new source
     this.audioElement.src = src;
     this.audioElement.load();
     this.updatePositionState();
     
-    // Set a timeout to clear loading state if it takes too long
     this.loadTimeout = setTimeout(() => {
       console.log('[AudioService] Loading timeout, clearing loading state');
       this.isLoading = false;
@@ -461,7 +455,7 @@ class AudioService {
       this.loadTimeout = null;
     }, 3000);
     
-    // Auto-play if it was playing before
+    // Auto-play if it was playing before (for seamless transition)
     if (wasPlaying && !this.isUserPaused) {
       const tryPlay = () => {
         if (this.audioElement && this.audioElement.readyState >= 2) {
@@ -473,10 +467,8 @@ class AudioService {
         }
       };
       this.audioElement.addEventListener('canplaythrough', tryPlay);
-      // Also try after a short delay as fallback
       setTimeout(tryPlay, 500);
     } else {
-      // Still need to clear loading state even if not playing
       setTimeout(() => {
         if (this.isLoading) {
           this.isLoading = false;
@@ -486,7 +478,6 @@ class AudioService {
     }
   }
 
-  // FIXED: play with better error handling
   play() {
     if (!this.audioElement) return;
     
@@ -495,15 +486,13 @@ class AudioService {
       return;
     }
     
-    // Resume AudioContext if suspended
     if (this.audioContext && this.audioContext.state === 'suspended') {
       this.audioContext.resume().catch(e => console.log('AudioContext resume failed:', e));
     }
     
-    // Clear loading state when attempting to play
     this.isLoading = false;
     
-    // If audio is already at the end, reset to beginning
+    // If audio is at the end, reset to beginning
     if (this.audioElement.currentTime >= this.audioElement.duration && this.audioElement.duration > 0) {
       this.audioElement.currentTime = 0;
     }
@@ -519,11 +508,8 @@ class AudioService {
         })
         .catch(error => {
           console.error('[AudioService] Play failed:', error);
-          // On iOS, user interaction might be needed first time
           if (error.name === 'NotAllowedError') {
             console.log('[AudioService] User interaction needed first');
-          } else if (error.name === 'NotSupportedError') {
-            console.error('[AudioService] Audio format not supported');
           }
         });
     }
@@ -534,7 +520,7 @@ class AudioService {
       this.audioElement.pause();
       this.isUserPaused = true;
       this.setPlaybackState(false);
-      console.log('[AudioService] Paused');
+      console.log('[AudioService] Paused by user');
     }
   }
 
@@ -571,7 +557,6 @@ class AudioService {
     this.isUserPaused = false;
   }
   
-  // Add method to check loading state
   isLoadingState(): boolean {
     return this.isLoading;
   }
