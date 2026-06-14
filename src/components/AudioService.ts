@@ -9,18 +9,23 @@ class AudioService {
   private currentSrc: string = '';
   private nextSrc: string | null = null;
   private retryCount = 0;
-  private maxRetries = 2;
+  private maxRetries = 5; // Increased retries for slow internet
   private wakeLock: any = null;
   private audioContext: AudioContext | null = null;
   private isLoading = false;
   private loadTimeout: NodeJS.Timeout | null = null;
   private backgroundKeepAliveInterval: NodeJS.Timeout | null = null;
+  private savedPosition: number = 0; // Save position for resume
+  private isWaitingForData: boolean = false;
+  private connectionMonitorInterval: NodeJS.Timeout | null = null;
+  private wasPlayingBeforeStall: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
       this.init();
       this.setupBackgroundPlayback();
       this.setupPWABackgroundPlayback();
+      this.setupConnectionMonitoring();
     }
   }
 
@@ -51,32 +56,170 @@ class AudioService {
     this.setupAudioElementEvents();
   }
 
+  private setupConnectionMonitoring() {
+    if (typeof window === 'undefined') return;
+    
+    // Monitor online/offline status
+    window.addEventListener('online', () => {
+      console.log('[AudioService] Internet connection restored');
+      this.handleConnectionRestored();
+    });
+    
+    window.addEventListener('offline', () => {
+      console.log('[AudioService] Internet connection lost');
+      this.handleConnectionLost();
+    });
+    
+    // Monitor connection quality using Network Information API
+    if ('connection' in navigator) {
+      const connection = (navigator as any).connection;
+      if (connection) {
+        connection.addEventListener('change', () => {
+          console.log('[AudioService] Connection changed:', connection.effectiveType);
+          if (connection.effectiveType === 'slow-2g' || connection.effectiveType === '2g') {
+            this.handleSlowConnection();
+          } else if (connection.effectiveType === '4g' || connection.effectiveType === '3g') {
+            this.handleGoodConnection();
+          }
+        });
+      }
+    }
+  }
+
+  private handleConnectionLost() {
+    if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
+      console.log('[AudioService] Connection lost, saving position and pausing');
+      this.savedPosition = this.audioElement.currentTime;
+      this.wasPlayingBeforeStall = true;
+      this.audioElement.pause();
+      this.isWaitingForData = true;
+      this.setPlaybackState(false);
+    }
+  }
+
+  private handleConnectionRestored() {
+    if (this.isWaitingForData && this.wasPlayingBeforeStall && this.currentSrc) {
+      console.log('[AudioService] Connection restored, resuming from position:', this.savedPosition);
+      this.resumeFromSavedPosition();
+    }
+    this.isWaitingForData = false;
+  }
+
+  private handleSlowConnection() {
+    console.log('[AudioService] Slow connection detected, adjusting buffer');
+    if (this.audioElement) {
+      // Reduce buffer size for slow connections
+      this.audioElement.preload = 'metadata';
+    }
+  }
+
+  private handleGoodConnection() {
+    console.log('[AudioService] Good connection detected');
+    if (this.audioElement) {
+      this.audioElement.preload = 'auto';
+    }
+  }
+
+  private resumeFromSavedPosition() {
+    if (!this.audioElement || !this.currentSrc) return;
+    
+    console.log('[AudioService] Resuming from saved position:', this.savedPosition);
+    
+    // Store the position we want to resume from
+    const targetPosition = this.savedPosition;
+    this.savedPosition = 0;
+    this.wasPlayingBeforeStall = false;
+    
+    // Reload the audio
+    this.audioElement.src = this.currentSrc;
+    this.audioElement.load();
+    
+    // Wait for enough data then seek and play
+    const onCanPlay = () => {
+      if (this.audioElement && targetPosition > 0) {
+        console.log('[AudioService] Seeking to saved position:', targetPosition);
+        this.audioElement.currentTime = targetPosition;
+        this.audioElement.play().catch(e => console.error('Resume play failed:', e));
+        this.isUserPaused = false;
+        this.setPlaybackState(true);
+      }
+      this.audioElement?.removeEventListener('canplay', onCanPlay);
+    };
+    
+    this.audioElement.addEventListener('canplay', onCanPlay);
+    
+    // Fallback timeout
+    setTimeout(() => {
+      if (this.audioElement && targetPosition > 0) {
+        this.audioElement.currentTime = targetPosition;
+        this.audioElement.play().catch(() => {});
+      }
+      this.audioElement?.removeEventListener('canplay', onCanPlay);
+    }, 2000);
+  }
+
   private setupAudioElementEvents() {
     if (!this.audioElement) return;
     
     this.audioElement.onended = () => {
       console.log('[AudioService] Audio ended');
       this.isLoading = false;
+      this.isWaitingForData = false;
       if (this.onEndCallback) {
         this.onEndCallback();
+      }
+    };
+    
+    // Handle waiting/stalling (slow internet)
+    this.audioElement.onwaiting = () => {
+      console.log('[AudioService] Audio waiting for data (slow internet)');
+      this.isLoading = true;
+      this.isWaitingForData = true;
+      if (!this.isUserPaused) {
+        this.wasPlayingBeforeStall = true;
+        this.savedPosition = this.audioElement?.currentTime || 0;
+      }
+    };
+    
+    this.audioElement.onstalled = () => {
+      console.log('[AudioService] Audio stalled (connection issue)');
+      this.isLoading = true;
+      if (!this.isUserPaused) {
+        this.savedPosition = this.audioElement?.currentTime || 0;
       }
     };
     
     this.audioElement.oncanplaythrough = () => {
       console.log('[AudioService] Can play through');
       this.isLoading = false;
+      
+      // If we were waiting and have a saved position, resume from there
+      if (this.isWaitingForData && this.wasPlayingBeforeStall && this.savedPosition > 0) {
+        console.log('[AudioService] Resuming after stall from position:', this.savedPosition);
+        this.audioElement!.currentTime = this.savedPosition;
+        this.audioElement!.play().catch(e => console.error('Resume after stall failed:', e));
+        this.isWaitingForData = false;
+        this.wasPlayingBeforeStall = false;
+        this.savedPosition = 0;
+      }
     };
     
     this.audioElement.onerror = (e) => {
       console.error('[AudioService] Audio error:', e);
       this.isLoading = false;
-      if (this.retryCount < this.maxRetries) {
+      
+      // If error due to network, try to resume from saved position
+      if (this.savedPosition > 0 && !this.isUserPaused) {
+        console.log('[AudioService] Error occurred, retrying from position:', this.savedPosition);
+        setTimeout(() => this.resumeFromSavedPosition(), 1000);
+      } else if (this.retryCount < this.maxRetries) {
         this.retryCount++;
+        console.log(`[AudioService] Retrying (${this.retryCount}/${this.maxRetries})...`);
         setTimeout(() => {
           if (this.currentSrc && this.audioElement) {
             this.audioElement.load();
           }
-        }, 500);
+        }, 1000 * this.retryCount); // Exponential backoff
       } else if (this.onEndCallback) {
         this.onEndCallback();
       }
@@ -109,13 +252,12 @@ class AudioService {
     // Run keep alive every 3 seconds
     this.backgroundKeepAliveInterval = setInterval(keepAudioAlive, 3000);
     
-    // Handle page visibility - CRITICAL for background playback
+    // Handle page visibility
     document.addEventListener('visibilitychange', () => {
       console.log('[AudioService] Visibility changed:', document.hidden ? 'hidden' : 'visible');
       
       if (document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
         console.log('[AudioService] App hidden, continuing background playback');
-        // Force keep audio playing in background
         this.audioElement.play().catch((e) => console.error('Background play failed:', e));
       }
     });
@@ -136,24 +278,23 @@ class AudioService {
       
       const wasPlaying = localStorage.getItem('pavpav_was_playing') === 'true';
       const savedSrc = localStorage.getItem('pavpav_playing_song');
+      const savedTime = parseFloat(localStorage.getItem('pavpav_playing_time') || '0');
       
       if (wasPlaying && savedSrc && this.audioElement && this.audioElement.paused) {
-        console.log('[AudioService] Resuming playback after page show');
-        this.audioElement.src = savedSrc;
-        this.audioElement.load();
-        setTimeout(() => {
-          this.audioElement?.play().catch(e => console.error('Resume play failed:', e));
-        }, 100);
+        console.log('[AudioService] Resuming playback from saved time:', savedTime);
+        this.savedPosition = savedTime;
+        this.resumeFromSavedPosition();
         localStorage.removeItem('pavpav_was_playing');
         localStorage.removeItem('pavpav_playing_song');
         localStorage.removeItem('pavpav_playing_time');
       }
     });
     
-    // Handle beforeunload to keep audio alive
     window.addEventListener('beforeunload', () => {
       if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
-        console.log('[AudioService] Before unload, ensuring audio continues');
+        localStorage.setItem('pavpav_was_playing', 'true');
+        localStorage.setItem('pavpav_playing_song', this.currentSrc);
+        localStorage.setItem('pavpav_playing_time', String(this.audioElement.currentTime));
       }
     });
   }
@@ -167,11 +308,9 @@ class AudioService {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (AudioContextClass) {
         this.audioContext = new AudioContextClass();
-        // Create silent gain node to keep context active
         const gain = this.audioContext.createGain();
         gain.gain.value = 0;
         gain.connect(this.audioContext.destination);
-        // Keep context suspended until needed
         this.audioContext.suspend();
       }
     } catch (e) {
@@ -301,10 +440,8 @@ class AudioService {
       });
     } catch (e) {}
     
-    // Re-register handlers when app comes to foreground
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && 'mediaSession' in navigator) {
-        console.log('[AudioService] App visible, re-registering media session handlers');
         navigator.mediaSession.setActionHandler('play', () => {
           this.isUserPaused = false;
           this.play();
@@ -356,10 +493,13 @@ class AudioService {
     this.currentSrc = src;
     this.retryCount = 0;
     this.isLoading = true;
+    this.savedPosition = 0;
+    this.isWaitingForData = false;
     
     if (!this.audioElement) return;
     
     const wasPlaying = !this.audioElement.paused;
+    const savedTime = this.savedPosition;
     
     this.audioElement.src = src;
     this.audioElement.load();
@@ -368,12 +508,16 @@ class AudioService {
       console.log('[AudioService] Loading timeout');
       this.isLoading = false;
       this.loadTimeout = null;
-    }, 3000);
+    }, 5000);
     
     if (wasPlaying && !this.isUserPaused) {
       console.log('[AudioService] Auto-playing after load');
       const tryPlay = () => {
         if (this.audioElement && this.audioElement.readyState >= 2) {
+          // If we have a saved position, seek to it
+          if (savedTime > 0) {
+            this.audioElement.currentTime = savedTime;
+          }
           this.audioElement.play()
             .then(() => console.log('[AudioService] Auto-play successful'))
             .catch(e => console.error('[AudioService] Auto-play failed:', e));
@@ -388,7 +532,7 @@ class AudioService {
         if (this.isLoading) {
           this.isLoading = false;
         }
-      }, 1000);
+      }, 2000);
     }
   }
 
@@ -400,13 +544,13 @@ class AudioService {
       return;
     }
     
-    // Resume AudioContext if suspended
     if (this.audioContext && this.audioContext.state === 'suspended') {
       this.audioContext.resume().catch(e => console.log('AudioContext resume failed:', e));
     }
     
     this.isLoading = false;
     this.isUserPaused = false;
+    this.wasPlayingBeforeStall = true;
     
     const playPromise = this.audioElement.play();
     if (playPromise !== undefined) {
@@ -417,7 +561,6 @@ class AudioService {
         })
         .catch(error => {
           console.error('[AudioService] Play failed:', error);
-          // Try again after short delay for iOS
           if (error.name === 'NotAllowedError') {
             setTimeout(() => {
               this.audioElement?.play().catch(() => {});
@@ -431,6 +574,7 @@ class AudioService {
     if (this.audioElement) {
       this.audioElement.pause();
       this.isUserPaused = true;
+      this.wasPlayingBeforeStall = false;
       this.setPlaybackState(false);
       console.log('[AudioService] Paused');
     }
@@ -445,11 +589,12 @@ class AudioService {
   setCurrentTime(time: number) {
     if (this.audioElement && this.audioElement.duration && !isNaN(this.audioElement.duration)) {
       this.audioElement.currentTime = time;
+      this.savedPosition = time;
     }
   }
 
   getCurrentTime(): number {
-    return this.audioElement?.currentTime || 0;
+    return this.audioElement?.currentTime || this.savedPosition || 0;
   }
 
   getDuration(): number {
@@ -496,7 +641,6 @@ class AudioService {
         artwork: artwork
       });
       
-      // Force update position state
       this.updatePositionState();
     }
   }
@@ -517,6 +661,9 @@ class AudioService {
     }
     if (this.backgroundKeepAliveInterval) {
       clearInterval(this.backgroundKeepAliveInterval);
+    }
+    if (this.connectionMonitorInterval) {
+      clearInterval(this.connectionMonitorInterval);
     }
     if (this.wakeLock) {
       this.wakeLock.release();
