@@ -16,7 +16,7 @@ class AudioService {
   private isLoading = false;
   private loadTimeout: NodeJS.Timeout | null = null;
   private isSwitchingSong = false;
-  private shouldAutoPlayNext = true;
+  private shouldAutoPlayNext = true; // CRITICAL: Track if next song should auto-play
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -60,18 +60,19 @@ class AudioService {
   private setupAudioElementEvents() {
     if (!this.audioElement) return;
     
-    // CRITICAL FIX: Use both onended and addEventListener for redundancy
+    // CRITICAL FIX: When audio ends, mark that next song should auto-play
     const endedHandler = () => {
-      console.log('[AudioService] Audio ended - triggering next song');
+      console.log('[AudioService] Audio ended - marking next song for auto-play');
       this.isLoading = false;
       this.isSwitchingSong = false;
       
-      // Always call onEndCallback when audio ends naturally
-      if (this.onEndCallback && this.shouldAutoPlayNext && !this.isUserPaused) {
-        console.log('[AudioService] Calling onEndCallback for next song');
+      // CRITICAL: Set this flag to true so the next song auto-plays
+      this.shouldAutoPlayNext = true;
+      
+      // Call the callback to change to next song
+      if (this.onEndCallback) {
+        console.log('[AudioService] Calling onEndCallback to load next song');
         this.onEndCallback();
-      } else if (this.isUserPaused) {
-        console.log('[AudioService] User paused, not auto-playing next');
       }
     };
     
@@ -108,8 +109,8 @@ class AudioService {
             setTimeout(() => this.play(), 200);
           }
         }, 500);
-      } else if (this.onEndCallback && this.shouldAutoPlayNext && !this.isUserPaused) {
-        console.log('[AudioService] Error occurred, skipping to next song');
+      } else if (this.onEndCallback) {
+        this.shouldAutoPlayNext = true;
         this.onEndCallback();
       }
     };
@@ -123,7 +124,6 @@ class AudioService {
   private setupPWABackgroundPlayback() {
     if (typeof window === 'undefined') return;
     
-    // Create a silent AudioContext to keep the audio session alive
     try {
       // @ts-ignore
       window.AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -135,10 +135,8 @@ class AudioService {
       console.log('[AudioService] AudioContext not supported');
     }
     
-    // Prevent device from sleeping during playback
     this.setupWakeLock();
     
-    // Handle visibility changes
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
         console.log('[AudioService] App in background, continuing playback');
@@ -146,7 +144,6 @@ class AudioService {
       }
     });
     
-    // Handle page hide
     window.addEventListener('pagehide', () => {
       if (this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
         console.log('[AudioService] Page hiding, maintaining background playback');
@@ -234,7 +231,6 @@ class AudioService {
   switchToPreloaded(src: string): boolean {
     if (this.nextSrc === src && this.preloadElement && this.preloadElement.readyState >= 2) {
       console.log('[AudioService] Switching to preloaded song instantly');
-      const wasPlaying = this.audioElement && !this.audioElement.paused;
       
       const tempAudio = this.audioElement;
       this.audioElement = this.preloadElement;
@@ -251,7 +247,8 @@ class AudioService {
       this.isSwitchingSong = false;
       this.setupAudioElementEvents();
       
-      if (wasPlaying && this.audioElement && !this.isUserPaused) {
+      // CRITICAL: Auto-play the preloaded song if shouldAutoPlayNext is true
+      if (this.shouldAutoPlayNext && this.audioElement && !this.isUserPaused) {
         console.log('[AudioService] Auto-playing preloaded song');
         setTimeout(() => {
           this.audioElement?.play().catch(e => console.error('Play after swap failed:', e));
@@ -294,6 +291,7 @@ class AudioService {
     navigator.mediaSession.setActionHandler('pause', () => {
       console.log('[AudioService] Lock screen: Pause');
       this.isUserPaused = true;
+      this.shouldAutoPlayNext = false;
       this.pause();
     });
     
@@ -436,14 +434,13 @@ class AudioService {
     }
     
     console.log('[AudioService] Setting audio source:', src.substring(0, 80));
+    console.log('[AudioService] shouldAutoPlayNext:', this.shouldAutoPlayNext);
     this.currentSrc = src;
     this.retryCount = 0;
     this.isLoading = true;
     this.isSwitchingSong = true;
     
     if (!this.audioElement) return;
-    
-    const wasPlaying = !this.audioElement.paused;
     
     this.audioElement.src = src;
     this.audioElement.load();
@@ -456,20 +453,27 @@ class AudioService {
       this.loadTimeout = null;
     }, 3000);
     
-    // Auto-play if it was playing before (for seamless transition)
-    if (wasPlaying && !this.isUserPaused) {
+    // CRITICAL: Auto-play if shouldAutoPlayNext is true
+    if (this.shouldAutoPlayNext && !this.isUserPaused) {
+      console.log('[AudioService] Auto-playing new song (shouldAutoPlayNext=true)');
       const tryPlay = () => {
         if (this.audioElement && this.audioElement.readyState >= 2) {
-          console.log('[AudioService] Auto-playing after load');
-          this.audioElement.play().catch(e => console.error('Auto-play failed:', e));
+          console.log('[AudioService] Audio ready, playing now');
+          this.audioElement.play()
+            .then(() => {
+              console.log('[AudioService] Auto-play successful');
+              this.isUserPaused = false;
+            })
+            .catch(e => console.error('[AudioService] Auto-play failed:', e));
           this.isLoading = false;
           this.isSwitchingSong = false;
           this.audioElement.removeEventListener('canplaythrough', tryPlay);
         }
       };
       this.audioElement.addEventListener('canplaythrough', tryPlay);
-      setTimeout(tryPlay, 500);
+      setTimeout(tryPlay, 300);
     } else {
+      console.log('[AudioService] Not auto-playing (shouldAutoPlayNext=false or user paused)');
       setTimeout(() => {
         if (this.isLoading) {
           this.isLoading = false;
@@ -495,7 +499,6 @@ class AudioService {
     this.isUserPaused = false;
     this.shouldAutoPlayNext = true;
     
-    // If audio is at the end, reset to beginning
     if (this.audioElement.currentTime >= this.audioElement.duration && this.audioElement.duration > 0) {
       this.audioElement.currentTime = 0;
     }
@@ -504,15 +507,12 @@ class AudioService {
     if (playPromise !== undefined) {
       playPromise
         .then(() => {
-          console.log('[AudioService] Playing successfully');
+          console.log('[AudioService] Play successful');
           this.setPlaybackState(true);
           this.updatePositionState();
         })
         .catch(error => {
           console.error('[AudioService] Play failed:', error);
-          if (error.name === 'NotAllowedError') {
-            console.log('[AudioService] User interaction needed first');
-          }
         });
     }
   }
@@ -523,7 +523,7 @@ class AudioService {
       this.isUserPaused = true;
       this.shouldAutoPlayNext = false;
       this.setPlaybackState(false);
-      console.log('[AudioService] Paused by user - auto-play disabled');
+      console.log('[AudioService] Paused by user');
     }
   }
 
@@ -557,6 +557,7 @@ class AudioService {
   }
   
   resetUserPauseState() {
+    console.log('[AudioService] Resetting user pause state');
     this.isUserPaused = false;
     this.shouldAutoPlayNext = true;
   }
