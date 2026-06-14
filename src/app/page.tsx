@@ -437,20 +437,19 @@ const AdminEditSongModal = ({
 
 // iOS audio activation handler
 const activateIOSAudio = () => {
-  // Create and play a silent audio to "activate" the audio session on iOS
   const silentAudio = new Audio();
   silentAudio.volume = 0;
   silentAudio.play().catch(() => {});
 };
 
 export default function Home() {
-  // ========== PERSISTENT PLAYING STATE - NEVER RESET ON NAVIGATION ==========
+  // ========== PERSISTENT PLAYING STATE ==========
   const [playingSongTitle, setPlayingSongTitle] = useState<string | null>(null);
   const [playingQueue, setPlayingQueue] = useState<string[]>([]);
   const [playingIndex, setPlayingIndex] = useState(0);
   const [playingContextType, setPlayingContextType] = useState<'playlist' | 'liked' | 'artist' | 'all'>('all');
   
-  // ========== UI NAVIGATION STATE (DOES NOT AFFECT PLAYBACK) ==========
+  // ========== UI NAVIGATION STATE ==========
   const [activeTab, setActiveTab] = useState("home");
   const [search, setSearch] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -463,7 +462,6 @@ export default function Home() {
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
   const [artistSongs, setArtistSongs] = useState<Song[]>([]);
   
-  // UI display queues (just for showing, not controlling playback)
   const [displayPlaylistSongs, setDisplayPlaylistSongs] = useState<string[] | null>(null);
   const [displayArtistQueue, setDisplayArtistQueue] = useState<string[]>([]);
   const [displayIsPlayingFromLiked, setDisplayIsPlayingFromLiked] = useState(false);
@@ -489,7 +487,6 @@ export default function Home() {
   const [playlistCoverPreview, setPlaylistCoverPreview] = useState("");
   const playlistCoverInputRef = useRef<HTMLInputElement>(null);
   
-  // Add to Playlist Modal states
   const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
   const [selectedSongForPlaylist, setSelectedSongForPlaylist] = useState<Song | null>(null);
   const [isAddingToPlaylist, setIsAddingToPlaylist] = useState(false);
@@ -506,12 +503,10 @@ export default function Home() {
 
   const allSongs = supabaseSongs;
 
-  // iOS Audio Activation - User interaction required for background audio on iOS
+  // iOS Audio Activation
   useEffect(() => {
-    // iOS requires user interaction before audio can play in background
     const handleUserInteraction = () => {
       activateIOSAudio();
-      // Remove listeners after first interaction
       document.removeEventListener('click', handleUserInteraction);
       document.removeEventListener('touchstart', handleUserInteraction);
     };
@@ -525,7 +520,6 @@ export default function Home() {
     };
   }, []);
 
-  // Helper functions
   const getSongsForArtistByName = useCallback((artistName: string): Song[] => {
     return allSongs.filter(song => songBelongsToArtist(song.artist, artistName));
   }, [allSongs, songBelongsToArtist]);
@@ -533,80 +527,65 @@ export default function Home() {
   const likedSongsList = useMemo(() => allSongs.filter(song => likedSongs.includes(song.title)), [allSongs, likedSongs]);
   const likedSongTitles = useMemo(() => likedSongsList.map(song => song.title), [likedSongsList]);
 
-  // Get current song object from playing state - uses title as key to prevent unnecessary re-renders
   const currentSongObject = useMemo(() => {
     if (!playingSongTitle) return allSongs[0] || null;
     return allSongs.find(s => s.title === playingSongTitle) || allSongs[0] || null;
   }, [playingSongTitle, allSongs]);
 
-  // Get the actual queue for playback
   const getActualPlayingQueue = useCallback((): string[] => {
     if (playingQueue.length > 0) return playingQueue;
     return allSongs.map(s => s.title);
   }, [playingQueue, allSongs]);
 
-  // FAST: Play next function with preloading optimization
+  // ========== FIXED: Play next function - SIMPLE AND RELIABLE ==========
   const playNext = useCallback(() => {
     const currentQueue = getActualPlayingQueue();
     console.log('[Page] playNext - Current index:', playingIndex, 'Queue length:', currentQueue.length);
     
     if (!currentQueue.length) return;
     
-    if (playingIndex < currentQueue.length - 1) {
-      const newIndex = playingIndex + 1;
-      const nextSong = currentQueue[newIndex];
-      console.log('[Page] Going to next song:', nextSong, 'at index:', newIndex);
-      setPlayingIndex(newIndex);
-      setPlayingSongTitle(nextSong);
-    } else {
-      // End of queue - loop to beginning
-      console.log('[Page] End of queue, looping to first song');
-      setPlayingIndex(0);
-      setPlayingSongTitle(currentQueue[0]);
-    }
+    // Calculate next index using modulo (wraps to 0 when at end)
+    const newIndex = (playingIndex + 1) % currentQueue.length;
+    const nextSong = currentQueue[newIndex];
+    
+    console.log('[Page] playNext - Next song:', nextSong, 'at index:', newIndex);
+    
+    setPlayingIndex(newIndex);
+    setPlayingSongTitle(nextSong);
   }, [playingIndex, getActualPlayingQueue]);
 
-  // FIXED: Play previous function
+  // ========== FIXED: Play previous function ==========
   const playPrevious = useCallback(() => {
     const currentQueue = getActualPlayingQueue();
     console.log('[Page] playPrevious - Current index:', playingIndex, 'Queue length:', currentQueue.length);
     
     if (!currentQueue.length) return;
     
-    if (playingIndex > 0) {
-      const newIndex = playingIndex - 1;
-      const prevSong = currentQueue[newIndex];
-      console.log('[Page] Going to previous song:', prevSong, 'at index:', newIndex);
-      setPlayingIndex(newIndex);
-      setPlayingSongTitle(prevSong);
-    } else {
-      // Beginning of queue - go to last song
-      const newIndex = currentQueue.length - 1;
-      const lastSong = currentQueue[newIndex];
-      console.log('[Page] Beginning of queue, going to last song:', lastSong);
-      setPlayingIndex(newIndex);
-      setPlayingSongTitle(lastSong);
-    }
+    // Calculate previous index using modulo (wraps to end when at beginning)
+    const newIndex = (playingIndex - 1 + currentQueue.length) % currentQueue.length;
+    const prevSong = currentQueue[newIndex];
+    
+    console.log('[Page] playPrevious - Previous song:', prevSong, 'at index:', newIndex);
+    
+    setPlayingIndex(newIndex);
+    setPlayingSongTitle(prevSong);
   }, [playingIndex, getActualPlayingQueue]);
 
-  // Play song - THIS IS THE ONLY PLACE THAT CHANGES PLAYBACK
+  // Play song
   const playSong = useCallback((title: string, contextType: 'playlist' | 'liked' | 'artist' | 'all' = 'all', contextId?: string, contextSongs?: string[]) => {
-    // Clear any stuck state when explicitly playing a new song
     localStorage.removeItem('pavpav_playing_song_title');
     
     const songsToUse = contextSongs || (contextType === 'liked' ? likedSongTitles : allSongs.map(s => s.title));
     const index = songsToUse.findIndex(s => s === title);
     
     if (index !== -1) {
-      console.log('playSong called - Playing:', title, 'at index:', index, 'Queue length:', songsToUse.length);
+      console.log('playSong called - Playing:', title, 'at index:', index);
       
-      // Update persistent playing state
       setPlayingContextType(contextType);
       setPlayingQueue(songsToUse);
       setPlayingIndex(index);
       setPlayingSongTitle(title);
       
-      // Also update UI display state (for visual feedback only)
       if (contextType === 'playlist') {
         setDisplayPlaylistSongs(songsToUse);
         setDisplayIsPlayingFromLiked(false);
@@ -640,11 +619,9 @@ export default function Home() {
     }
   }, [allSongs, likedSongTitles]);
 
-  // Play song from playlist
   const playSongFromPlaylist = useCallback((title: string, playlistSongTitles: string[], playlistId: string) => {
     const index = playlistSongTitles.findIndex(t => t === title);
     if (index !== -1) {
-      console.log('playSongFromPlaylist - Playing:', title, 'from playlist');
       setPlayingContextType('playlist');
       setPlayingQueue(playlistSongTitles);
       setPlayingIndex(index);
@@ -659,11 +636,9 @@ export default function Home() {
     }
   }, []);
 
-  // Play song from liked songs
   const playSongFromLiked = useCallback((title: string) => {
     const index = likedSongTitles.findIndex(t => t === title);
     if (index !== -1) {
-      console.log('playSongFromLiked - Playing:', title, 'from liked songs');
       setPlayingContextType('liked');
       setPlayingQueue(likedSongTitles);
       setPlayingIndex(index);
@@ -678,13 +653,11 @@ export default function Home() {
     }
   }, [likedSongTitles]);
 
-  // Play song from artist
   const playSongFromArtist = useCallback((title: string) => {
     const songsForArtist = getSongsForArtistByName(selectedArtist || '');
     const artistSongTitles = songsForArtist.map(s => s.title);
     const index = artistSongTitles.findIndex(t => t === title);
     if (index !== -1) {
-      console.log('playSongFromArtist - Playing:', title, 'from artist');
       setPlayingContextType('artist');
       setPlayingQueue(artistSongTitles);
       setPlayingIndex(index);
@@ -700,7 +673,6 @@ export default function Home() {
     }
   }, [selectedArtist, getSongsForArtistByName]);
 
-  // Navigation handlers - THESE DO NOT RESET PLAYBACK
   const handleSelectArtist = useCallback((artistName: string) => {
     const songsForArtist = getSongsForArtistByName(artistName);
     setSelectedArtist(artistName);
@@ -738,7 +710,6 @@ export default function Home() {
     setActiveTab(tabId);
   }, []);
 
-  // Other handlers
   const addUserSong = useCallback(async (newSong: { title: string; artist: string; cover: string; src: string }) => {
     try {
       await addSongToSupabase({
@@ -917,7 +888,6 @@ export default function Home() {
     return () => window.removeEventListener('selectPlaylist', handleSelectPlaylist as EventListener);
   }, []);
 
-  // Update recently played when song changes
   useEffect(() => {
     if (!playingSongTitle) return;
     setRecentlyPlayed((prev) => {
@@ -926,7 +896,6 @@ export default function Home() {
     });
   }, [playingSongTitle]);
 
-  // ========== PWA PERSISTENCE - Save playing state to localStorage ==========
   useEffect(() => {
     if (playingSongTitle && playingQueue.length > 0) {
       try {
@@ -938,14 +907,12 @@ export default function Home() {
           timestamp: Date.now()
         };
         localStorage.setItem('pavpav_playing_state', JSON.stringify(stateToSave));
-        console.log('Saved playing state:', { playingSongTitle, playingIndex, queueLength: playingQueue.length });
       } catch (error) {
         console.error('Failed to save playing state:', error);
       }
     }
   }, [playingSongTitle, playingQueue, playingIndex, playingContextType]);
 
-  // Load playing state from localStorage on app start
   useEffect(() => {
     if (allSongs.length === 0) return;
     
@@ -964,9 +931,7 @@ export default function Home() {
           setPlayingQueue(queue);
           setPlayingIndex(index);
           if (context) setPlayingContextType(context);
-          console.log('Loaded saved playing state:', { songTitle, index, queueLength: queue.length });
         } else {
-          console.log('Saved song not found, using first song');
           if (allSongs.length > 0 && !playingSongTitle) {
             const defaultQueue = allSongs.map(s => s.title);
             setPlayingSongTitle(allSongs[0].title);
@@ -1000,7 +965,6 @@ export default function Home() {
 
   const recentlyPlayedSongs = recentlyPlayed.map((title) => allSongs.find((song) => song.title === title)).filter(Boolean);
 
-  // For MusicPlayer - get current queue from persistent state
   const playerQueue = playingQueue.length > 0 ? playingQueue : allSongs.map(s => s.title);
   const playerIndex = playingIndex;
   
@@ -1015,7 +979,6 @@ export default function Home() {
     }
   }, [playingIndex, playerQueue]);
 
-  // Create stable current song object for MusicPlayer
   const musicPlayerCurrentSong = useMemo(() => {
     if (!currentSongObject) {
       return { title: "", artist: "", cover: "", src: "" };
@@ -1026,9 +989,8 @@ export default function Home() {
       cover: currentSongObject.cover_url || "",
       src: currentSongObject.audio_url || "",
     };
-  }, [currentSongObject?.title, currentSongObject?.artist, currentSongObject?.cover_url, currentSongObject?.audio_url]);
+  }, [currentSongObject]);
 
-  // Create stable songs array for MusicPlayer
   const musicPlayerSongs = useMemo(() => {
     return allSongs.map(s => ({ 
       title: s.title, 
@@ -1038,7 +1000,6 @@ export default function Home() {
     }));
   }, [allSongs]);
 
-  // Loading state
   if (songsLoading || authLoading) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
@@ -1074,7 +1035,7 @@ export default function Home() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
-          className="relative z-[100] flex-1 overflow-y-auto md:ml-72 pt-55 md:pt-[70px] pb-[140px] px-4 md:px-5"
+          className="relative z-[100] flex-1 overflow-y-auto md:ml-72 pt-16 md:pt-[70px] pb-[140px] px-4 md:px-5"
         >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 md:mb-8">
             <div className="flex items-center justify-between w-full md:w-auto">
