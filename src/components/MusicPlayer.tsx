@@ -80,8 +80,9 @@ export default function MusicPlayer({
     }
   }, [currentIndex, currentQueue, songs, repeat]);
 
+  // CRITICAL FIX: handleNext must ensure auto-play
   const handleNext = useCallback(() => {
-    console.log('[MusicPlayer] handleNext called');
+    console.log('[MusicPlayer] handleNext called, repeat:', repeat);
     
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
@@ -93,6 +94,7 @@ export default function MusicPlayer({
       return;
     }
 
+    // CRITICAL: Reset user pause state to ensure next song auto-plays
     audioService.resetUserPauseState();
 
     if (isShuffled && shuffledQueue.length > 0) {
@@ -119,6 +121,7 @@ export default function MusicPlayer({
         }
       }
     } else {
+      // This will trigger parent to update the song
       onNext();
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext]);
@@ -168,8 +171,9 @@ export default function MusicPlayer({
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
 
+  // CRITICAL FIX: handleSongEnd - this is called when current song ends
   const handleSongEnd = useCallback(() => {
-    console.log('[MusicPlayer] handleSongEnd called');
+    console.log('[MusicPlayer] handleSongEnd called - song finished');
     
     if (!isMounted.current) return;
     
@@ -188,6 +192,9 @@ export default function MusicPlayer({
           setPlaying(true);
         }
       } else {
+        // CRITICAL: Call handleNext to go to next song
+        // handleNext will reset user pause state and trigger the next song
+        console.log('[MusicPlayer] Song ended, calling handleNext');
         handleNext();
       }
     }, 50);
@@ -198,14 +205,17 @@ export default function MusicPlayer({
     console.log('[MusicPlayer] Setting up audio service callbacks');
     
     audioService.setNextCallback(() => {
+      console.log('[MusicPlayer] Next track from lock screen');
       handleNext();
     });
     
     audioService.setPrevCallback(() => {
+      console.log('[MusicPlayer] Previous track from lock screen');
       handlePrev();
     });
     
     audioService.setOnEndCallback(() => {
+      console.log('[MusicPlayer] End callback from audioService');
       handleSongEnd();
     });
     
@@ -227,7 +237,7 @@ export default function MusicPlayer({
     }
   }, [currentSong]);
 
-  // Sync audio source with loading state management
+  // CRITICAL FIX: When new song is loaded, auto-play if we were playing
   useEffect(() => {
     if (!currentSong?.src) return;
     
@@ -238,7 +248,7 @@ export default function MusicPlayer({
     setAudioLoaded(false);
     setProgress(0);
     
-    // Set the source
+    // Set the source - AudioService will auto-play if shouldAutoPlayNext is true
     audioService.setSrc(currentSong.src);
     
     // Check loading state periodically
@@ -271,6 +281,7 @@ export default function MusicPlayer({
     
     const handlePlay = () => {
       if (isMounted.current) {
+        console.log('[MusicPlayer] Audio play event');
         setPlaying(true);
         setIsLoading(false);
       }
@@ -278,18 +289,21 @@ export default function MusicPlayer({
     
     const handlePause = () => {
       if (isMounted.current) {
+        console.log('[MusicPlayer] Audio pause event');
         setPlaying(false);
       }
     };
     
     const handleWaiting = () => {
       if (isMounted.current) {
+        console.log('[MusicPlayer] Audio waiting event');
         setIsLoading(true);
       }
     };
     
     const handlePlaying = () => {
       if (isMounted.current) {
+        console.log('[MusicPlayer] Audio playing event');
         setIsLoading(false);
         setPlaying(true);
       }
@@ -361,16 +375,14 @@ export default function MusicPlayer({
   }, []);
 
   const togglePlay = useCallback(() => {
-    console.log('[MusicPlayer] togglePlay called');
+    console.log('[MusicPlayer] togglePlay called, current playing:', playing);
     setHasUserInteracted(true);
     
     if (playing) {
       audioService.pause();
-      setPlaying(false);
     } else {
       audioService.resetUserPauseState();
       audioService.play();
-      // Don't set playing here - let the audio element's play event handle it
     }
   }, [playing]);
 
