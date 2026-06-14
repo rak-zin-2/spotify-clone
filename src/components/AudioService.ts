@@ -49,7 +49,6 @@ class AudioService {
   private setupAudioElementEvents() {
     if (!this.audioElement) return;
     
-    // CRITICAL: When audio ends, call the callback
     this.audioElement.onended = () => {
       console.log('[AudioService] Audio ended');
       this.isLoading = false;
@@ -260,7 +259,6 @@ class AudioService {
     this.onEndCallback = callback;
   }
 
-  // CRITICAL: setSrc with auto-play when needed
   setSrc(src: string) {
     if (!src || src === '') {
       console.error('[AudioService] Invalid audio source');
@@ -290,10 +288,9 @@ class AudioService {
       this.loadTimeout = null;
     }, 3000);
     
-    // CRITICAL: Auto-play if it was playing before OR if user didn't pause
-    // This ensures next song auto-plays
+    // Auto-play if it was playing before (for seamless transition)
     if (wasPlaying && !this.isUserPaused) {
-      console.log('[AudioService] Auto-playing after load (was playing)');
+      console.log('[AudioService] Auto-playing after load');
       const tryPlay = () => {
         if (this.audioElement && this.audioElement.readyState >= 2) {
           this.audioElement.play()

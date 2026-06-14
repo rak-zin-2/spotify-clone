@@ -46,51 +46,135 @@ export default function MusicPlayer({
   const [progress, setProgress] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [previousVolume, setPreviousVolume] = useState(0.8);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [audioLoaded, setAudioLoaded] = useState(false);
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
+  const [isChangingSong, setIsChangingSong] = useState(false);
   
+  // Shuffle state
   const [shuffledQueue, setShuffledQueue] = useState<string[]>([]);
   const [shuffledIndex, setShuffledIndex] = useState(0);
   const [isShuffled, setIsShuffled] = useState(false);
 
-  const isMounted = useRef(true);
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Preload next song
+  // Initialize audio service callbacks
   useEffect(() => {
-    if (!currentQueue.length || currentIndex === undefined) return;
+    audioService.setNextCallback(() => {
+      console.log('Next track triggered from lock screen');
+      handleNext();
+    });
     
-    let nextIndex = currentIndex + 1;
-    if (nextIndex >= currentQueue.length) {
-      if (repeat === "all") {
-        nextIndex = 0;
-      } else {
-        return;
+    audioService.setPrevCallback(() => {
+      console.log('Previous track triggered from lock screen');
+      handlePrev();
+    });
+    
+    audioService.setOnEndCallback(() => {
+      console.log('Song ended callback from audioService');
+      if (!audioService.isUserPausedState()) {
+        handleSongEnd();
+      }
+    });
+  }, []);
+
+  // Update lock screen metadata whenever current song changes
+  useEffect(() => {
+    if (currentSong) {
+      audioService.updateMediaMetadata(
+        currentSong.title,
+        currentSong.artist,
+        currentSong.cover
+      );
+    }
+  }, [currentSong]);
+
+  // Preload image for lock screen
+  useEffect(() => {
+    if (currentSong?.cover && currentSong?.cover !== '') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        console.log('Image preloaded for lock screen:', currentSong.title);
+        setTimeout(() => {
+          audioService.updateMediaMetadata(
+            currentSong.title,
+            currentSong.artist,
+            currentSong.cover
+          );
+        }, 100);
+      };
+      img.src = currentSong.cover;
+    }
+  }, [currentSong]);
+
+  // Sync audio element with service
+  useEffect(() => {
+    if (currentSong?.src) {
+      audioService.setSrc(currentSong.src);
+    }
+  }, [currentSong]);
+
+  // Sync volume
+  useEffect(() => {
+    audioService.setVolume(volume);
+  }, [volume]);
+
+  // Sync play state
+  useEffect(() => {
+    audioService.setPlaybackState(playing);
+  }, [playing]);
+
+  // Generate new shuffled queue
+  useEffect(() => {
+    if (shuffle && currentQueue.length > 0) {
+      const newShuffledQueue = [...currentQueue];
+      for (let i = newShuffledQueue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newShuffledQueue[i], newShuffledQueue[j]] = [newShuffledQueue[j], newShuffledQueue[i]];
+      }
+      
+      const currentSongTitle = currentQueue[currentIndex];
+      const currentSongIndex = newShuffledQueue.findIndex(s => s === currentSongTitle);
+      if (currentSongIndex !== -1 && currentSongIndex !== 0) {
+        [newShuffledQueue[0], newShuffledQueue[currentSongIndex]] = 
+        [newShuffledQueue[currentSongIndex], newShuffledQueue[0]];
+      }
+      
+      setShuffledQueue(newShuffledQueue);
+      setShuffledIndex(0);
+      setIsShuffled(true);
+    } else if (!shuffle) {
+      setIsShuffled(false);
+      setShuffledQueue([]);
+      setShuffledIndex(0);
+    }
+  }, [shuffle, currentQueue, currentIndex]);
+
+  // Update shuffled index
+  useEffect(() => {
+    if (isShuffled && shuffledQueue.length > 0) {
+      const currentSongTitle = currentQueue[currentIndex];
+      const newIndex = shuffledQueue.findIndex(s => s === currentSongTitle);
+      if (newIndex !== -1 && newIndex !== shuffledIndex) {
+        setShuffledIndex(newIndex);
       }
     }
-    
-    const nextSongTitle = currentQueue[nextIndex];
-    const nextSong = songs.find(s => s.title === nextSongTitle);
-    
-    if (nextSong?.src) {
-      audioService.preloadNextSong(nextSong.src);
-    }
-  }, [currentIndex, currentQueue, songs, repeat]);
+  }, [currentIndex, currentQueue, isShuffled, shuffledQueue, shuffledIndex]);
 
+  // Handle next song
   const handleNext = useCallback(() => {
-    console.log('[MusicPlayer] handleNext called');
+    console.log('handleNext called');
     
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
       if (audio) {
         audio.currentTime = 0;
-        audio.play().catch(e => console.error('Replay failed:', e));
+        audio.play().catch(() => {});
         setPlaying(true);
       }
       return;
     }
 
-    // Reset user pause state so next song auto-plays
+    setIsChangingSong(true);
     audioService.resetUserPauseState();
 
     if (isShuffled && shuffledQueue.length > 0) {
@@ -121,19 +205,21 @@ export default function MusicPlayer({
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onNext]);
 
+  // Handle previous song
   const handlePrev = useCallback(() => {
-    console.log('[MusicPlayer] handlePrev called');
+    console.log('handlePrev called');
     
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
       if (audio) {
         audio.currentTime = 0;
-        audio.play().catch(e => console.error('Replay failed:', e));
+        audio.play().catch(() => {});
         setPlaying(true);
       }
       return;
     }
 
+    setIsChangingSong(true);
     audioService.resetUserPauseState();
 
     if (isShuffled && shuffledQueue.length > 0) {
@@ -155,10 +241,8 @@ export default function MusicPlayer({
         }
       } else {
         const audio = audioService.getAudioElement();
-        if (audio && audio.currentTime > 3) {
+        if (audio) {
           audio.currentTime = 0;
-        } else {
-          onPrev();
         }
       }
     } else {
@@ -166,16 +250,15 @@ export default function MusicPlayer({
     }
   }, [repeat, isShuffled, shuffledQueue, shuffledIndex, currentQueue, setCurrentIndex, onPrev]);
 
-  // CRITICAL: This handles song end and triggers next song with auto-play
+  // Handle song end - auto-play next
   const handleSongEnd = useCallback(() => {
-    console.log('[MusicPlayer] handleSongEnd - song finished, going to next');
-    if (!isMounted.current) return;
+    console.log('handleSongEnd called, repeat mode:', repeat);
     
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
       if (audio) {
         audio.currentTime = 0;
-        audio.play().catch(e => console.error('Replay failed:', e));
+        audio.play().catch(() => {});
         setPlaying(true);
       }
     } else {
@@ -183,162 +266,80 @@ export default function MusicPlayer({
     }
   }, [repeat, handleNext]);
 
-  // Initialize audio service callbacks
-  useEffect(() => {
-    console.log('[MusicPlayer] Setting up audio service callbacks');
-    
-    audioService.setNextCallback(() => {
-      console.log('[MusicPlayer] Next from lock screen');
-      handleNext();
-    });
-    
-    audioService.setPrevCallback(() => {
-      console.log('[MusicPlayer] Previous from lock screen');
-      handlePrev();
-    });
-    
-    audioService.setOnEndCallback(() => {
-      console.log('[MusicPlayer] End callback from audioService');
-      handleSongEnd();
-    });
-    
-    return () => {
-      audioService.setOnEndCallback(() => {});
-      audioService.setNextCallback(() => {});
-      audioService.setPrevCallback(() => {});
-    };
-  }, [handleNext, handlePrev, handleSongEnd]);
-
-  // Update lock screen metadata
-  useEffect(() => {
-    if (currentSong?.title) {
-      audioService.updateMediaMetadata(
-        currentSong.title,
-        currentSong.artist,
-        currentSong.cover
-      );
-    }
-  }, [currentSong]);
-
-  // Handle new song source
+  // Load new song
   useEffect(() => {
     if (!currentSong?.src) return;
     
-    console.log('[MusicPlayer] Loading new song:', currentSong.title);
+    const wasPlaying = playing;
     
-    setIsLoading(true);
     setAudioLoaded(false);
+    setIsLoading(true);
     setProgress(0);
     
     audioService.setSrc(currentSong.src);
     
-    const checkInterval = setInterval(() => {
-      const audio = audioService.getAudioElement();
-      if (audio && audio.readyState >= 2) {
+    const serviceAudio = audioService.getAudioElement();
+    
+    if (serviceAudio) {
+      const handleCanPlayThrough = () => {
         setAudioLoaded(true);
         setIsLoading(false);
-        clearInterval(checkInterval);
-      }
-    }, 100);
-    
-    const timeout = setTimeout(() => {
-      setIsLoading(false);
-      setAudioLoaded(true);
-      clearInterval(checkInterval);
-    }, 2000);
-    
-    return () => {
-      clearInterval(checkInterval);
-      clearTimeout(timeout);
-    };
-  }, [currentSong]);
-
-  // Sync play/pause state
-  useEffect(() => {
-    const audio = audioService.getAudioElement();
-    if (!audio) return;
-    
-    const handlePlay = () => {
-      if (isMounted.current) {
-        setPlaying(true);
+        setIsChangingSong(false);
+        
+        const shouldAutoPlay = (hasUserInteracted || wasPlaying) && !audioService.isUserPausedState();
+        
+        if (shouldAutoPlay && !isChangingSong) {
+          console.log('Auto-playing next song');
+          audioService.play();
+          setPlaying(true);
+        } else {
+          setPlaying(false);
+        }
+        
+        serviceAudio.removeEventListener('canplaythrough', handleCanPlayThrough);
+      };
+      
+      const handleError = (e: Event) => {
+        console.error("Audio loading error for:", currentSong.title, e);
         setIsLoading(false);
-      }
-    };
-    
-    const handlePause = () => {
-      if (isMounted.current) {
-        setPlaying(false);
-      }
-    };
-    
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('pause', handlePause);
-    
-    return () => {
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('pause', handlePause);
-    };
-  }, []);
-
-  // Sync volume
-  useEffect(() => {
-    audioService.setVolume(volume);
-  }, [volume]);
-
-  // Generate shuffled queue
-  useEffect(() => {
-    if (shuffle && currentQueue.length > 0) {
-      const newShuffledQueue = [...currentQueue];
-      for (let i = newShuffledQueue.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [newShuffledQueue[i], newShuffledQueue[j]] = [newShuffledQueue[j], newShuffledQueue[i]];
-      }
+        setAudioLoaded(false);
+        setIsChangingSong(false);
+      };
       
-      const currentSongTitle = currentQueue[currentIndex];
-      const currentSongIndex = newShuffledQueue.findIndex(s => s === currentSongTitle);
-      if (currentSongIndex !== -1 && currentSongIndex !== 0) {
-        [newShuffledQueue[0], newShuffledQueue[currentSongIndex]] = 
-        [newShuffledQueue[currentSongIndex], newShuffledQueue[0]];
-      }
+      serviceAudio.addEventListener('canplaythrough', handleCanPlayThrough);
+      serviceAudio.addEventListener('error', handleError);
       
-      setShuffledQueue(newShuffledQueue);
-      setShuffledIndex(0);
-      setIsShuffled(true);
-    } else if (!shuffle) {
-      setIsShuffled(false);
-      setShuffledQueue([]);
-      setShuffledIndex(0);
+      return () => {
+        serviceAudio.removeEventListener('canplaythrough', handleCanPlayThrough);
+        serviceAudio.removeEventListener('error', handleError);
+      };
     }
-  }, [shuffle, currentQueue, currentIndex]);
+  }, [currentSong, hasUserInteracted, isChangingSong, playing]);
 
   // Update progress bar
   useEffect(() => {
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current);
-    }
-    
-    progressIntervalRef.current = setInterval(() => {
+    const updateProgress = () => {
       const audio = audioService.getAudioElement();
-      if (audio && audio.duration && isFinite(audio.duration) && !isNaN(audio.duration) && audio.duration > 0 && !audio.paused) {
+      if (audio && audio.duration && isFinite(audio.duration) && !isNaN(audio.duration)) {
         setProgress((audio.currentTime / audio.duration) * 100 || 0);
       }
-    }, 100);
-    
-    return () => {
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-      }
     };
+    
+    const interval = setInterval(updateProgress, 100);
+    return () => clearInterval(interval);
   }, []);
 
   const togglePlay = useCallback(() => {
-    console.log('[MusicPlayer] togglePlay');
+    console.log('togglePlay called');
+    setHasUserInteracted(true);
     
     if (playing) {
       audioService.pause();
+      setPlaying(false);
     } else {
       audioService.resetUserPauseState();
       audioService.play();
+      setPlaying(true);
     }
   }, [playing]);
 
@@ -371,35 +372,50 @@ export default function MusicPlayer({
     if (!audio) return;
     
     const duration = audio.duration;
-    if (!duration || isNaN(duration) || !isFinite(duration) || duration <= 0) return;
+    if (!duration || isNaN(duration) || !isFinite(duration)) return;
     
     const percent = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
     const newTime = percent * duration;
     if (isFinite(newTime) && !isNaN(newTime)) {
       audioService.setCurrentTime(newTime);
-      setProgress(percent * 100);
     }
-  }, []);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-      }
-    };
   }, []);
 
   const currentTime = audioService.getCurrentTime();
   const duration = audioService.getDuration();
-  const isValidDuration = duration && isFinite(duration) && !isNaN(duration) && duration > 0;
-  const showLoading = isLoading && !audioLoaded;
+  const isValidDuration = duration && isFinite(duration) && !isNaN(duration);
+
+  const getRepeatIcon = () => {
+    if (repeat === "one") {
+      return <Repeat size={16} className="md:w-4 md:h-4" />;
+    }
+    return <Repeat size={16} className="md:w-4 md:h-4" />;
+  };
+
+  useEffect(() => {
+    const styleId = 'music-player-animations';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  }, []);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto">
       <div className="bg-gradient-to-r from-gray-900/95 to-gray-800/95 backdrop-blur-xl rounded-t-xl border-t border-blue-500/20 px-3 md:px-5 py-3 md:py-4">
         
+        {/* Progress Bar */}
         <div className="w-full mb-3 md:mb-4 px-2">
           <div className="flex items-center gap-2 md:gap-3">
             <span className="text-[10px] md:text-xs text-blue-300/60 w-8 md:w-10">{formatTime(currentTime)}</span>
@@ -434,12 +450,15 @@ export default function MusicPlayer({
           </div>
         </div>
 
+        {/* Main layout */}
         <div className="grid grid-cols-3 items-center gap-2 md:gap-4">
+          {/* LEFT - Rotating Photo + Song Info */}
           <div className="flex items-center gap-2 md:gap-3 justify-start min-w-0">
             <div
               className="flex-shrink-0"
               style={{
-                animation: playing && !showLoading ? "spin 4s linear infinite" : "none",
+                animation: playing && audioLoaded && !isLoading ? "spin 4s linear infinite" : "none",
+                willChange: "transform"
               }}
             >
               <div className="w-8 h-8 md:w-10 md:h-10 rounded-full overflow-hidden shadow-lg ring-2 ring-blue-500/30">
@@ -456,64 +475,87 @@ export default function MusicPlayer({
             </div>
           </div>
 
+          {/* CENTER - Controls */}
           <div className="flex items-center justify-center gap-2 md:gap-4">
-            <button
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => setShuffle(!shuffle)}
               className={`p-1.5 md:p-2 rounded-full transition-all duration-200 ${
                 shuffle ? "text-blue-400 bg-blue-500/20" : "text-white/60 hover:text-white hover:bg-white/10"
               }`}
+              aria-label="Shuffle"
             >
-              <Shuffle size={16} className="md:w-4 md:h-4" />
-            </button>
+              <Shuffle size={14} className="md:w-4 md:h-4" />
+            </motion.button>
             
-            <button
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
               onClick={handlePrev}
               className="p-1.5 md:p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-all"
+              aria-label="Previous"
             >
-              <SkipBack size={18} className="md:w-5 md:h-5" />
-            </button>
+              <SkipBack size={16} className="md:w-5 md:h-5" />
+            </motion.button>
             
-            <button
+            {/* Play/Pause Button */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              animate={{ scale: playing && !isLoading ? [1, 1.05, 1] : 1 }}
+              transition={{ duration: 0.3, repeat: playing && !isLoading ? Infinity : 0, repeatDelay: 2 }}
               onClick={togglePlay}
-              disabled={showLoading}
+              disabled={isLoading}
               className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 transition-all duration-200 flex items-center justify-center shadow-lg shadow-blue-500/30 flex-shrink-0 disabled:opacity-50"
+              aria-label={playing ? "Pause" : "Play"}
             >
-              {showLoading ? (
+              {isLoading ? (
                 <div className="w-4 h-4 md:w-5 md:h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : playing ? (
-                <Pause size={18} className="md:w-5 md:h-5 text-white" />
+                <Pause size={16} className="md:w-5 md:h-5 text-white" />
               ) : (
-                <Play size={18} className="ml-0.5 md:w-5 md:h-5 text-white" />
+                <Play size={16} className="ml-0.5 md:w-5 md:h-5 text-white" />
               )}
-            </button>
+            </motion.button>
             
-            <button
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
               onClick={handleNext}
               className="p-1.5 md:p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-all"
+              aria-label="Next"
             >
-              <SkipForward size={18} className="md:w-5 md:h-5" />
-            </button>
+              <SkipForward size={16} className="md:w-5 md:h-5" />
+            </motion.button>
             
-            <button
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
               onClick={toggleRepeat}
               className={`p-1.5 md:p-2 rounded-full transition-all duration-200 relative ${
                 repeat !== "off" ? "text-blue-400 bg-blue-500/20" : "text-white/60 hover:text-white hover:bg-white/10"
               }`}
+              aria-label="Repeat"
             >
-              <Repeat size={16} className="md:w-4 md:h-4" />
+              {getRepeatIcon()}
               {repeat === "one" && (
                 <span className="absolute -top-1 -right-1 text-[8px] font-bold">1</span>
               )}
-            </button>
+            </motion.button>
           </div>
 
+          {/* RIGHT - Volume */}
           <div className="hidden lg:flex items-center gap-2 justify-end">
-            <button
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
               onClick={toggleMute}
               className="p-1.5 md:p-2 rounded-full hover:bg-white/10 transition"
+              aria-label="Volume"
             >
-              {volume === 0 ? <VolumeX size={16} className="text-blue-400" /> : <Volume2 size={16} className="text-blue-400" />}
-            </button>
+              {volume === 0 ? <VolumeX size={14} className="text-blue-400" /> : <Volume2 size={14} className="text-blue-400" />}
+            </motion.button>
             <input
               type="range"
               min="0"
@@ -522,12 +564,15 @@ export default function MusicPlayer({
               value={volume}
               onChange={(e) => setVolume(Number(e.target.value))}
               className="w-20 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
+              aria-label="Volume slider"
             />
           </div>
 
+          {/* Mobile placeholder */}
           <div className="flex lg:hidden" />
         </div>
 
+        {/* Mobile song info below controls */}
         <div className="sm:hidden text-center mt-2">
           <h3 className="font-medium text-xs truncate text-white">{currentSong.title}</h3>
           <p className="text-blue-300/70 text-[10px] truncate">{currentSong.artist}</p>
