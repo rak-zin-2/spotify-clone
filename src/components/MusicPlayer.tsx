@@ -61,33 +61,33 @@ export default function MusicPlayer({
   useEffect(() => {
     // Set up callbacks for lock screen controls
     audioService.setNextCallback(() => {
+      console.log('Next track triggered from lock screen');
       handleNext();
     });
     
     audioService.setPrevCallback(() => {
+      console.log('Previous track triggered from lock screen');
       handlePrev();
     });
     
     audioService.setOnEndCallback(() => {
-      handleSongEnd();
+      console.log('Song ended callback triggered, auto-playing next...');
+      // Only auto-play next if user hasn't explicitly paused
+      if (!audioService.isUserPausedState()) {
+        handleSongEnd();
+      } else {
+        console.log('User paused, not auto-playing next');
+      }
     });
     
     // Sync audio element reference
     if (audioRef.current) {
-      // The audio service already has its own audio element
-      // We'll sync the two
-      const syncAudio = () => {
-        if (audioRef.current && audioService.getAudioElement()) {
-          // Use the service's audio element for background playback
-          const serviceAudio = audioService.getAudioElement();
-          if (serviceAudio) {
-            serviceAudio.onvolumechange = () => {
-              if (audioRef.current) audioRef.current.volume = serviceAudio.volume;
-            };
-          }
-        }
-      };
-      syncAudio();
+      const serviceAudio = audioService.getAudioElement();
+      if (serviceAudio) {
+        serviceAudio.onvolumechange = () => {
+          if (audioRef.current) audioRef.current.volume = serviceAudio.volume;
+        };
+      }
     }
   }, []);
 
@@ -149,6 +149,8 @@ export default function MusicPlayer({
 
   // Handle next song - FIXED for auto-play
   const handleNext = useCallback(() => {
+    console.log('handleNext called');
+    
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
       if (audio) {
@@ -160,6 +162,7 @@ export default function MusicPlayer({
     }
 
     setIsChangingSong(true);
+    audioService.resetUserPauseState(); // Reset pause state when manually changing track
 
     if (isShuffled && shuffledQueue.length > 0) {
       if (shuffledIndex < shuffledQueue.length - 1) {
@@ -191,6 +194,8 @@ export default function MusicPlayer({
 
   // Handle previous song
   const handlePrev = useCallback(() => {
+    console.log('handlePrev called');
+    
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
       if (audio) {
@@ -202,6 +207,7 @@ export default function MusicPlayer({
     }
 
     setIsChangingSong(true);
+    audioService.resetUserPauseState(); // Reset pause state when manually changing track
 
     if (isShuffled && shuffledQueue.length > 0) {
       if (shuffledIndex > 0) {
@@ -233,6 +239,8 @@ export default function MusicPlayer({
 
   // Handle song end - FIXED to auto-play next
   const handleSongEnd = useCallback(() => {
+    console.log('handleSongEnd called, repeat mode:', repeat);
+    
     if (repeat === "one") {
       const audio = audioService.getAudioElement();
       if (audio) {
@@ -241,6 +249,7 @@ export default function MusicPlayer({
         setPlaying(true);
       }
     } else {
+      // This will trigger handleNext which will load and auto-play the next song
       handleNext();
     }
   }, [repeat, handleNext]);
@@ -268,11 +277,18 @@ export default function MusicPlayer({
         setIsLoading(false);
         setIsChangingSong(false);
         
-        // Auto-play only if user has interacted before OR was playing
-        if ((hasUserInteracted || wasPlaying) && !isChangingSong) {
+        // Auto-play if:
+        // 1. User has interacted before, OR
+        // 2. Was playing before song change, OR
+        // 3. We're auto-playing next song (not user paused)
+        const shouldAutoPlay = (hasUserInteracted || wasPlaying) && !audioService.isUserPausedState();
+        
+        if (shouldAutoPlay && !isChangingSong) {
+          console.log('Auto-playing next song');
           audioService.play();
           setPlaying(true);
         } else {
+          console.log('Not auto-playing, user paused or no interaction');
           setPlaying(false);
         }
         
@@ -310,12 +326,14 @@ export default function MusicPlayer({
   }, []);
 
   const togglePlay = useCallback(() => {
+    console.log('togglePlay called, current playing state:', playing);
     setHasUserInteracted(true);
     
     if (playing) {
       audioService.pause();
       setPlaying(false);
     } else {
+      audioService.resetUserPauseState();
       audioService.play();
       setPlaying(true);
     }

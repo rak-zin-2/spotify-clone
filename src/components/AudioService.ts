@@ -3,12 +3,10 @@
 
 // This service manages audio playback with background support
 class AudioService {
-  private audioContext: AudioContext | null = null;
   private audioElement: HTMLAudioElement | null = null;
-  private sourceNode: MediaElementAudioSourceNode | null = null;
-  private gainNode: GainNode | null = null;
   private isInitialized = false;
   private onEndCallback: (() => void) | null = null;
+  private isUserPaused = false; // Track if user intentionally paused
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -26,8 +24,18 @@ class AudioService {
       this.setupMediaSession();
     }
     
-    // Lock screen controls
+    // Setup lock screen controls
     this.setupLockScreenControls();
+    
+    // Handle when audio naturally ends
+    if (this.audioElement) {
+      this.audioElement.onended = () => {
+        console.log('Audio ended naturally, triggering next song');
+        if (this.onEndCallback && !this.isUserPaused) {
+          this.onEndCallback();
+        }
+      };
+    }
   }
 
   private setupMediaSession() {
@@ -35,20 +43,24 @@ class AudioService {
     
     // Set action handlers for lock screen controls
     navigator.mediaSession.setActionHandler('play', () => {
+      console.log('Lock screen: Play pressed');
+      this.isUserPaused = false;
       this.play();
     });
     
     navigator.mediaSession.setActionHandler('pause', () => {
+      console.log('Lock screen: Pause pressed');
+      this.isUserPaused = true;
       this.pause();
     });
     
     navigator.mediaSession.setActionHandler('previoustrack', () => {
-      // Will be set externally
+      console.log('Lock screen: Previous track pressed');
       if (this.onPrevCallback) this.onPrevCallback();
     });
     
     navigator.mediaSession.setActionHandler('nexttrack', () => {
-      // Will be set externally
+      console.log('Lock screen: Next track pressed');
       if (this.onNextCallback) this.onNextCallback();
     });
     
@@ -67,7 +79,7 @@ class AudioService {
       
       // For iOS Web Audio support
       document.addEventListener('visibilitychange', () => {
-        if (document.hidden && this.audioElement && !this.audioElement.paused) {
+        if (document.hidden && this.audioElement && !this.audioElement.paused && !this.isUserPaused) {
           // Keep playing in background
           console.log('App in background, audio continues');
         }
@@ -81,28 +93,41 @@ class AudioService {
   setNextCallback(callback: () => void) {
     this.onNextCallback = callback;
     if ('mediaSession' in navigator) {
-      navigator.mediaSession.setActionHandler('nexttrack', () => callback());
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        console.log('Lock screen: Next track triggered');
+        this.isUserPaused = false; // Reset pause state when manually changing track
+        callback();
+      });
     }
   }
 
   setPrevCallback(callback: () => void) {
     this.onPrevCallback = callback;
     if ('mediaSession' in navigator) {
-      navigator.mediaSession.setActionHandler('previoustrack', () => callback());
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        console.log('Lock screen: Previous track triggered');
+        this.isUserPaused = false; // Reset pause state when manually changing track
+        callback();
+      });
     }
   }
 
   setOnEndCallback(callback: () => void) {
     this.onEndCallback = callback;
-    if (this.audioElement) {
-      this.audioElement.onended = () => callback();
-    }
   }
 
   setSrc(src: string) {
     if (this.audioElement) {
+      const wasPlaying = !this.audioElement.paused;
       this.audioElement.src = src;
       this.audioElement.load();
+      
+      // Auto-play after loading if we were playing before
+      if (wasPlaying && !this.isUserPaused) {
+        setTimeout(() => {
+          this.play();
+        }, 100);
+      }
     }
   }
 
@@ -110,9 +135,14 @@ class AudioService {
     if (this.audioElement) {
       const playPromise = this.audioElement.play();
       if (playPromise !== undefined) {
-        playPromise.catch(error => {
-          console.log('Play was prevented:', error);
-        });
+        playPromise
+          .then(() => {
+            console.log('Audio playing successfully');
+            this.isUserPaused = false;
+          })
+          .catch(error => {
+            console.log('Play was prevented:', error);
+          });
       }
     }
   }
@@ -120,6 +150,8 @@ class AudioService {
   pause() {
     if (this.audioElement) {
       this.audioElement.pause();
+      this.isUserPaused = true;
+      console.log('Audio paused by user');
     }
   }
 
@@ -145,6 +177,14 @@ class AudioService {
 
   isPlaying(): boolean {
     return this.audioElement ? !this.audioElement.paused : false;
+  }
+  
+  isUserPausedState(): boolean {
+    return this.isUserPaused;
+  }
+  
+  resetUserPauseState() {
+    this.isUserPaused = false;
   }
 
   updateMediaMetadata(title: string, artist: string, artwork: string) {
