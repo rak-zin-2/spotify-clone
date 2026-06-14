@@ -69,11 +69,11 @@ export default function MusicPlayer({
     });
     
     audioService.setOnEndCallback(() => {
-      console.log('Song ended, auto-playing next...');
-      if (!audioService.isUserPausedState()) {
-        handleSongEnd();
-      }
-    });
+  console.log('Song ended callback from audioService');
+  if (!audioService.isUserPausedState()) {
+    handleSongEnd();
+  }
+});
   }, []);
 
   // Update lock screen metadata whenever current song changes

@@ -518,36 +518,56 @@ export default function Home() {
     return allSongs.map(s => s.title);
   }, [playingQueue, allSongs]);
 
-  // Play next/previous using persistent state
+  // FIXED: Play next function - properly goes to the next song in queue
   const playNext = useCallback(() => {
     const currentQueue = getActualPlayingQueue();
+    console.log('playNext - Current index:', playingIndex, 'Queue length:', currentQueue.length, 'Current song:', currentQueue[playingIndex]);
+    
     if (playingIndex < currentQueue.length - 1) {
+      // Go to next song in queue
       const newIndex = playingIndex + 1;
+      const nextSong = currentQueue[newIndex];
+      console.log('Going to next song:', nextSong, 'at index:', newIndex);
       setPlayingIndex(newIndex);
-      setPlayingSongTitle(currentQueue[newIndex]);
+      setPlayingSongTitle(nextSong);
     } else if (playingContextType === 'all') {
+      // Loop back to first song
+      console.log('End of queue, looping to first song');
       setPlayingIndex(0);
       setPlayingSongTitle(currentQueue[0]);
     } else {
+      // For playlists/liked/artist, loop back to first
+      console.log('Context end, looping to first song');
       setPlayingIndex(0);
       setPlayingSongTitle(currentQueue[0]);
     }
   }, [playingIndex, playingContextType, getActualPlayingQueue]);
 
+  // FIXED: Play previous function
   const playPrevious = useCallback(() => {
     const currentQueue = getActualPlayingQueue();
+    console.log('playPrevious - Current index:', playingIndex, 'Queue length:', currentQueue.length);
+    
     if (playingIndex > 0) {
+      // Go to previous song in queue
       const newIndex = playingIndex - 1;
+      const prevSong = currentQueue[newIndex];
+      console.log('Going to previous song:', prevSong, 'at index:', newIndex);
       setPlayingIndex(newIndex);
-      setPlayingSongTitle(currentQueue[newIndex]);
+      setPlayingSongTitle(prevSong);
     } else if (playingContextType === 'all') {
+      // Go to last song
       const newIndex = currentQueue.length - 1;
+      const lastSong = currentQueue[newIndex];
+      console.log('Beginning of queue, going to last song:', lastSong);
       setPlayingIndex(newIndex);
-      setPlayingSongTitle(currentQueue[newIndex]);
+      setPlayingSongTitle(lastSong);
     } else {
+      // For playlists/liked/artist, go to last
       const newIndex = currentQueue.length - 1;
+      const lastSong = currentQueue[newIndex];
       setPlayingIndex(newIndex);
-      setPlayingSongTitle(currentQueue[newIndex]);
+      setPlayingSongTitle(lastSong);
     }
   }, [playingIndex, playingContextType, getActualPlayingQueue]);
 
@@ -560,6 +580,8 @@ export default function Home() {
     const index = songsToUse.findIndex(s => s === title);
     
     if (index !== -1) {
+      console.log('playSong called - Playing:', title, 'at index:', index, 'Queue length:', songsToUse.length);
+      
       // Update persistent playing state
       setPlayingContextType(contextType);
       setPlayingQueue(songsToUse);
@@ -604,6 +626,7 @@ export default function Home() {
   const playSongFromPlaylist = useCallback((title: string, playlistSongTitles: string[], playlistId: string) => {
     const index = playlistSongTitles.findIndex(t => t === title);
     if (index !== -1) {
+      console.log('playSongFromPlaylist - Playing:', title, 'from playlist');
       setPlayingContextType('playlist');
       setPlayingQueue(playlistSongTitles);
       setPlayingIndex(index);
@@ -622,6 +645,7 @@ export default function Home() {
   const playSongFromLiked = useCallback((title: string) => {
     const index = likedSongTitles.findIndex(t => t === title);
     if (index !== -1) {
+      console.log('playSongFromLiked - Playing:', title, 'from liked songs');
       setPlayingContextType('liked');
       setPlayingQueue(likedSongTitles);
       setPlayingIndex(index);
@@ -642,6 +666,7 @@ export default function Home() {
     const artistSongTitles = songsForArtist.map(s => s.title);
     const index = artistSongTitles.findIndex(t => t === title);
     if (index !== -1) {
+      console.log('playSongFromArtist - Playing:', title, 'from artist');
       setPlayingContextType('artist');
       setPlayingQueue(artistSongTitles);
       setPlayingIndex(index);
@@ -666,7 +691,6 @@ export default function Home() {
     setSelectedPlaylist(null);
     setShowLikedSongs(false);
     setActiveTab("artists");
-    // NEVER reset playing state here
   }, [getSongsForArtistByName]);
 
   const handleBackFromArtist = useCallback(() => {
@@ -674,7 +698,6 @@ export default function Home() {
     setSelectedArtist(null);
     setArtistSongs([]);
     setActiveTab("artists");
-    // NEVER reset playing state here
   }, []);
 
   const handleLikedSongs = useCallback(() => {
@@ -683,7 +706,6 @@ export default function Home() {
     setShowArtistView(false);
     setSelectedArtist(null);
     setActiveTab("library");
-    // NEVER reset playing state here
   }, []);
 
   const handleLibraryView = useCallback(() => {
@@ -692,12 +714,10 @@ export default function Home() {
     setShowArtistView(false);
     setSelectedArtist(null);
     setActiveTab("library");
-    // NEVER reset playing state here
   }, []);
 
   const handleNavigation = useCallback((tabId: string) => {
     setActiveTab(tabId);
-    // NEVER reset playing state here - this is crucial!
   }, []);
 
   // Other handlers
@@ -876,70 +896,69 @@ export default function Home() {
   }, [playingSongTitle]);
 
   // ========== PWA PERSISTENCE - Save playing state to localStorage ==========
-  // Save current playing state whenever it changes
   useEffect(() => {
     if (playingSongTitle && playingQueue.length > 0) {
       try {
-        localStorage.setItem('pavpav_playing_song_title', playingSongTitle);
-        localStorage.setItem('pavpav_playing_queue', JSON.stringify(playingQueue));
-        localStorage.setItem('pavpav_playing_index', playingIndex.toString());
-        localStorage.setItem('pavpav_playing_context', playingContextType);
-        console.log('Saved playing state to localStorage:', { playingSongTitle, playingIndex });
+        const stateToSave = {
+          songTitle: playingSongTitle,
+          queue: playingQueue,
+          index: playingIndex,
+          context: playingContextType,
+          timestamp: Date.now()
+        };
+        localStorage.setItem('pavpav_playing_state', JSON.stringify(stateToSave));
+        console.log('Saved playing state:', { playingSongTitle, playingIndex, queueLength: playingQueue.length });
       } catch (error) {
         console.error('Failed to save playing state:', error);
       }
     }
   }, [playingSongTitle, playingQueue, playingIndex, playingContextType]);
 
-  // Load playing state from localStorage on app start (fixes PWA home screen issue)
+  // Load playing state from localStorage on app start
   useEffect(() => {
     if (allSongs.length === 0) return;
     
     try {
-      const savedSong = localStorage.getItem('pavpav_playing_song_title');
-      const savedQueue = localStorage.getItem('pavpav_playing_queue');
-      const savedIndex = localStorage.getItem('pavpav_playing_index');
-      const savedContext = localStorage.getItem('pavpav_playing_context') as 'playlist' | 'liked' | 'artist' | 'all' | null;
+      const savedStateStr = localStorage.getItem('pavpav_playing_state');
       
-      if (savedSong && savedQueue && savedIndex && allSongs.length > 0) {
-        const parsedQueue = JSON.parse(savedQueue);
-        const parsedIndex = parseInt(savedIndex);
+      if (savedStateStr) {
+        const savedState = JSON.parse(savedStateStr);
+        const { songTitle, queue, index, context } = savedState;
         
-        // Verify the saved song still exists in the queue and in allSongs
-        const songExists = allSongs.some(s => s.title === savedSong);
-        const songInQueue = parsedQueue.includes(savedSong);
+        const songExistsInAllSongs = allSongs.some(s => s.title === songTitle);
+        const songExistsInQueue = queue && queue.includes(songTitle);
         
-        if (songExists && songInQueue && parsedQueue[parsedIndex] === savedSong) {
-          setPlayingSongTitle(savedSong);
-          setPlayingQueue(parsedQueue);
-          setPlayingIndex(parsedIndex);
-          if (savedContext) setPlayingContextType(savedContext);
-          console.log('Loaded saved playing state:', { savedSong, parsedIndex });
+        if (songExistsInAllSongs && songExistsInQueue && queue[index] === songTitle) {
+          setPlayingSongTitle(songTitle);
+          setPlayingQueue(queue);
+          setPlayingIndex(index);
+          if (context) setPlayingContextType(context);
+          console.log('Loaded saved playing state:', { songTitle, index, queueLength: queue.length });
         } else {
-          console.log('Saved song not found, using default');
-          // Set default to first song if no valid saved state
+          console.log('Saved song not found, using first song');
           if (allSongs.length > 0 && !playingSongTitle) {
+            const defaultQueue = allSongs.map(s => s.title);
             setPlayingSongTitle(allSongs[0].title);
-            setPlayingQueue(allSongs.map(s => s.title));
+            setPlayingQueue(defaultQueue);
             setPlayingIndex(0);
           }
         }
       } else if (allSongs.length > 0 && !playingSongTitle) {
-        // First time - set default to first song
+        const defaultQueue = allSongs.map(s => s.title);
         setPlayingSongTitle(allSongs[0].title);
-        setPlayingQueue(allSongs.map(s => s.title));
+        setPlayingQueue(defaultQueue);
         setPlayingIndex(0);
       }
     } catch (error) {
       console.error('Failed to load playing state:', error);
-      // Fallback to first song
       if (allSongs.length > 0 && !playingSongTitle) {
+        const defaultQueue = allSongs.map(s => s.title);
         setPlayingSongTitle(allSongs[0].title);
-        setPlayingQueue(allSongs.map(s => s.title));
+        setPlayingQueue(defaultQueue);
         setPlayingIndex(0);
       }
     }
-  }, [allSongs]); // Only run when songs are loaded
+  }, [allSongs]);
 
   const suggestions = useMemo(() => getSuggestions(search, allSongs, 5), [search, allSongs]);
 
@@ -965,7 +984,7 @@ export default function Home() {
     }
   }, [playingIndex, playerQueue]);
 
-  // Create stable current song object for MusicPlayer - memoized to prevent re-renders
+  // Create stable current song object for MusicPlayer
   const musicPlayerCurrentSong = useMemo(() => {
     if (!currentSongObject) {
       return { title: "", artist: "", cover: "", src: "" };
